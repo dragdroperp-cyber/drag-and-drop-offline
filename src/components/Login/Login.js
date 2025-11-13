@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import { signInWithPopup, signInWithRedirect, getRedirectResult, signOut } from 'firebase/auth';
 import { auth, googleProvider } from '../../utils/firebase';
-import { getSellerId } from '../../utils/api';
+import { getSellerId, updateSellerProfile } from '../../utils/api';
 import { Shield, Sparkles, TrendingUp, ArrowRight } from 'lucide-react';
 
 const Login = () => {
@@ -469,6 +469,111 @@ const Login = () => {
                     <ArrowRight className="h-4 w-4" />
                   </>
                 )}
+              </span>
+            </button>
+
+            {/* Temporary Razorpay Test Login Button */}
+            <button
+              onClick={async () => {
+                try {
+                  setIsLoading(true);
+                  setError('');
+                  
+                  // Test credentials for Razorpay testing
+                  const testEmail = 'test@razorpay.com';
+                  const testUid = 'test-razorpay-uid-' + Date.now();
+                  const testDisplayName = 'Razorpay Test User';
+                  const testPhotoURL = null;
+
+                  // Create/verify seller in backend database
+                  const result = await getSellerId(
+                    testEmail,
+                    testUid,
+                    testDisplayName,
+                    testPhotoURL
+                  );
+
+                  if (result.success && result.sellerId) {
+                    console.log('✅ Test seller received from backend:', result.seller);
+                    
+                    // Temporarily set auth in localStorage so updateSellerProfile can authenticate
+                    const tempAuth = {
+                      isAuthenticated: true,
+                      currentUser: {
+                        ...result.seller,
+                        sellerId: result.sellerId,
+                        uid: testUid
+                      },
+                      sellerId: result.sellerId
+                    };
+                    localStorage.setItem('auth', JSON.stringify(tempAuth));
+                    
+                    // Automatically complete seller profile with test data
+                    const testProfileData = {
+                      shopName: 'Razorpay Test Store',
+                      businessType: 'Retail',
+                      shopAddress: '123 Test Street, Test Area',
+                      phoneNumber: '9876543210',
+                      city: 'Mumbai',
+                      state: 'Maharashtra',
+                      pincode: '400001',
+                      upiId: 'test@razorpay',
+                      gstNumber: null, // Optional
+                      gender: 'Other'
+                    };
+
+                    try {
+                      const profileResult = await updateSellerProfile(testProfileData);
+                      console.log('✅ Test profile completed:', profileResult);
+                      
+                      const updatedSeller = profileResult.data?.data?.seller || profileResult.data?.seller || {};
+                      
+                      const loginPayload = {
+                        username: testDisplayName,
+                        photoURL: testPhotoURL,
+                        uid: testUid,
+                        ...result.seller,
+                        ...updatedSeller,
+                        sellerId: result.sellerId,
+                        profileCompleted: true
+                      };
+                      
+                      dispatch({ 
+                        type: 'LOGIN', 
+                        payload: loginPayload
+                      });
+                    } catch (profileError) {
+                      console.error('Profile completion error (continuing with login):', profileError);
+                      // Even if profile update fails, continue with login
+                      const loginPayload = {
+                        username: testDisplayName,
+                        photoURL: testPhotoURL,
+                        uid: testUid,
+                        ...result.seller,
+                        sellerId: result.sellerId,
+                        profileCompleted: false
+                      };
+                      
+                      dispatch({ 
+                        type: 'LOGIN', 
+                        payload: loginPayload
+                      });
+                    }
+                  } else {
+                    setError(result.error || 'Failed to create test account');
+                  }
+                } catch (error) {
+                  console.error('Test login error:', error);
+                  setError('Failed to create test account. Please try again.');
+                } finally {
+                  setIsLoading(false);
+                }
+              }}
+              disabled={isLoading}
+              className="mt-3 w-full rounded-xl border-2 border-dashed border-purple-300 bg-purple-50 py-2.5 px-4 text-xs font-medium text-purple-700 transition hover:bg-purple-100 hover:border-purple-400 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <span className="flex items-center justify-center gap-2">
+                <span>🧪 Test Login (Razorpay Testing)</span>
               </span>
             </button>
 
