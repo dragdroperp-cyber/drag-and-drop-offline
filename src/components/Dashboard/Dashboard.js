@@ -894,13 +894,13 @@ const Dashboard = () => {
 
 
   return (
-    <div className="space-y-8 fade-in-up">
+    <div className="space-y-4 sm:space-y-3 lg:space-y-4 fade-in-up">
       {/* Welcome Section with Floating Boxes - Hidden on Mobile */}
       <div className="hidden lg:block" />
 
       {/* Subscription Status Alert */}
       {subscriptionExpiryDate && (
-        <div className={`rounded-xl border-2 p-4 ${getDaysRemainingColor(daysRemaining)}`}>
+        <div className={`rounded-xl border-2 p-4 ${getDaysRemainingColor(daysRemaining)} ${daysRemaining > 3 ? 'hidden sm:block' : ''}`}>
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-start space-x-3">
               <Clock className="h-6 w-6" />
