@@ -244,7 +244,7 @@ self.addEventListener('fetch', (event) => {
                   }
                   // Fallback to cached index
                   return caches.match('/').then(cachedIndex => {
-                    return cachedIndex || response; // Return cached index or original 404
+                    return cachedIndex || response;
                   });
                 }).catch(() => {
                   return caches.match('/').then(cachedIndex => {
@@ -338,7 +338,7 @@ self.addEventListener('fetch', (event) => {
               }
               // Fallback to cached index
               return caches.match('/').then(cachedIndex => {
-                return cachedIndex || response; // Return cached index or original 404
+                return cachedIndex || response;
               });
             }).catch(() => {
               return caches.match('/').then(cachedIndex => {
