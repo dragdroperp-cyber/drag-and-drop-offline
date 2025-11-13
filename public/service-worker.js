@@ -236,6 +236,23 @@ self.addEventListener('fetch', (event) => {
           // No cache, try network
           return fetch(request)
             .then((response) => {
+              // For navigation requests that return 404, serve index.html (SPA routing)
+              if (request.mode === 'navigate' && response.status === 404) {
+                return fetch('/').then(indexResponse => {
+                  if (indexResponse && indexResponse.ok) {
+                    return indexResponse;
+                  }
+                  // Fallback to cached index
+                  return caches.match('/').then(cachedIndex => {
+                    return cachedIndex || response; // Return cached index or original 404
+                  });
+                }).catch(() => {
+                  return caches.match('/').then(cachedIndex => {
+                    return cachedIndex || response;
+                  });
+                });
+              }
+              
               // Don't cache if not a valid response
               if (!response || response.status !== 200 || response.type !== 'basic') {
                 return response;
@@ -313,6 +330,23 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(request)
         .then((response) => {
+          // For navigation requests that return 404, serve index.html (SPA routing)
+          if (request.mode === 'navigate' && response.status === 404) {
+            return fetch('/').then(indexResponse => {
+              if (indexResponse && indexResponse.ok) {
+                return indexResponse;
+              }
+              // Fallback to cached index
+              return caches.match('/').then(cachedIndex => {
+                return cachedIndex || response; // Return cached index or original 404
+              });
+            }).catch(() => {
+              return caches.match('/').then(cachedIndex => {
+                return cachedIndex || response;
+              });
+            });
+          }
+          
           // Cache static assets even when not authenticated
           if (response && response.status === 200 && response.type === 'basic') {
             const isStaticAsset = 
