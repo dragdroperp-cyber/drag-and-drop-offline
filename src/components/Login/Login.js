@@ -59,10 +59,17 @@ const Login = () => {
             } else if (result.status === 403) {
               // Account inactive - deny access
               console.warn('Access denied: Seller account is inactive');
+              setError(result.error || 'Your account has been deactivated. Please contact administrator.');
+              auth.signOut().catch(console.error);
+            } else if (result.status === 503) {
+              // Database connection unavailable
+              console.error('Database connection unavailable');
+              setError(result.error || 'Database connection unavailable. Please try again later.');
               auth.signOut().catch(console.error);
             } else {
               // Other errors - deny access for security
               console.error('Backend verification failed:', result.error);
+              setError(result.error || 'Unable to verify your account. Please try again or contact support.');
               auth.signOut().catch(console.error);
             }
           } catch (authError) {
@@ -106,7 +113,7 @@ const Login = () => {
       // Use a timeout to prevent hanging promises
       const signInPromise = signInWithPopup(auth, googleProvider);
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Sign-in timeout')), 30000)
+        setTimeout(() => reject(new Error('Sign-in timeout')), 60000) // Increased to 60 seconds
       );
       
       const result = await Promise.race([signInPromise, timeoutPromise]);
@@ -153,8 +160,23 @@ const Login = () => {
             setError(result.error || 'Your account has been deactivated. Please contact administrator.');
             auth.signOut().catch(console.error);
             return;
+          } else if (result.status === 503) {
+            // Database connection unavailable
+            setError(result.error || 'Database connection unavailable. Please try again later.');
+            auth.signOut().catch(console.error);
+            return;
+          } else if (result.status === 409) {
+            // Duplicate account
+            setError(result.error || 'An account with this email already exists. Please sign in instead.');
+            auth.signOut().catch(console.error);
+            return;
+          } else if (result.status === 400) {
+            // Validation error
+            setError(result.error || 'Invalid data provided. Please check your information and try again.');
+            auth.signOut().catch(console.error);
+            return;
           } else {
-            // Other backend errors
+            // Other backend errors - use the error message from backend
             setError(result.error || 'Unable to verify your account. Please try again or contact support.');
             auth.signOut().catch(console.error);
             return;
@@ -258,10 +280,17 @@ const Login = () => {
             } else if (result.status === 403) {
               // Account inactive - deny access
               console.warn('Access denied: Seller account is inactive');
+              setError(result.error || 'Your account has been deactivated. Please contact administrator.');
+              auth.signOut().catch(console.error);
+            } else if (result.status === 503) {
+              // Database connection unavailable
+              console.error('Database connection unavailable');
+              setError(result.error || 'Database connection unavailable. Please try again later.');
               auth.signOut().catch(console.error);
             } else {
               // Other backend errors - deny access for security
               console.error('Backend verification failed:', result.error);
+              setError(result.error || 'Unable to verify your account. Please try again or contact support.');
               auth.signOut().catch(console.error);
             }
           } catch (authError) {
