@@ -109,6 +109,10 @@ export const getSellerIdFromAuth = () => {
  * Get seller ID from backend (for auth)
  */
 export const getSellerId = async (email, uid, displayName, photoURL) => {
+  // Create AbortController for timeout
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 45000); // 45 second timeout
+  
   try {
     const response = await fetch(`${API_BASE_URL}/auth/seller`, {
       method: 'POST',
@@ -120,8 +124,11 @@ export const getSellerId = async (email, uid, displayName, photoURL) => {
         uid,
         displayName,
         photoURL
-      })
+      }),
+      signal: controller.signal
     });
+    
+    clearTimeout(timeoutId);
 
     if (response.ok) {
       const data = await response.json();
@@ -137,7 +144,11 @@ export const getSellerId = async (email, uid, displayName, photoURL) => {
       status: response.status
     };
   } catch (error) {
+    clearTimeout(timeoutId);
     console.error('Get seller ID error:', error);
+    if (error.name === 'AbortError') {
+      return { success: false, error: 'Request timeout. Please check your connection and try again.', status: 408 };
+    }
     return { success: false, error: error.message };
   }
 };
