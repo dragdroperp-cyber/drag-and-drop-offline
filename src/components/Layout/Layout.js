@@ -114,7 +114,7 @@ const Layout = ({ children }) => {
         )}
 
         <main className="flex-1 overflow-y-auto overflow-x-hidden scroll-smooth no-scrollbar">
-          <div className="p-3 sm:p-5 lg:p-7 xl:p-10">
+          <div className="p-3 pt-3 sm:p-5 sm:pt-4 lg:p-7 lg:pt-5 xl:p-10 xl:pt-6">
             {children}
           </div>
         </main>
