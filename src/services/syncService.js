@@ -361,8 +361,27 @@ class SyncService {
               }
             } else {
               const failedItems = resultsData.failed || [];
-              const errorMsg = failedItems.find(f => f.id === item.id)?.error || result.message || result.error || 'Sync failed - no success items';
+              const failedItem = failedItems.find(f => f.id === item.id);
+              const errorMsg = failedItem?.error || result.message || result.error || 'Sync failed - no success items';
               console.error(`[SYNC] ❌ Sync failed for ${storeName} item ${item.id}:`, errorMsg);
+              console.error(`[SYNC] ❌ Failed item details:`, {
+                id: item.id,
+                name: item.name || item.id,
+                error: errorMsg,
+                action: failedItem?.action,
+                itemData: storeName === 'products' ? {
+                  name: item.name,
+                  description: item.description,
+                  stock: item.stock,
+                  quantity: item.quantity,
+                  unit: item.unit,
+                  costPrice: item.costPrice,
+                  sellingUnitPrice: item.sellingUnitPrice,
+                  mfg: item.mfg,
+                  expiryDate: item.expiryDate,
+                  sellerId: item.sellerId
+                } : item
+              });
               throw new Error(errorMsg);
             }
           } else {
@@ -372,17 +391,36 @@ class SyncService {
           }
         } catch (error) {
           console.error(`[SYNC] ❌ Failed to sync ${storeName} item ${item.id}:`, error.message);
+          console.error(`[SYNC] ❌ Error stack:`, error.stack);
+          console.error(`[SYNC] ❌ Item will remain in IndexedDB for retry. Item data:`, {
+            id: item.id,
+            name: item.name || item.id,
+            isSynced: item.isSynced,
+            isDeleted: item.isDeleted,
+            sellerId: item.sellerId
+          });
+          
           // Track retry attempts
           const attempts = this.retryAttempts.get(item.id) || 0;
           
-          // Mark item with sync error for retry
+          // IMPORTANT: Keep item in IndexedDB - never delete on sync failure
+          // Only mark with sync error for retry
           const failedItem = {
             ...item,
-            isSynced: false,
+            isSynced: false, // Keep as unsynced
             syncError: error.message,
-            syncAttempts: attempts + 1
+            syncAttempts: attempts + 1,
+            lastSyncAttempt: new Date().toISOString()
           };
-          await updateItem(failedItem);
+          
+          // Update item in IndexedDB to track the error, but keep it there
+          try {
+            await updateItem(failedItem);
+            console.log(`[SYNC] ✅ Item ${item.id} updated in IndexedDB with sync error (will retry later)`);
+          } catch (updateError) {
+            console.error(`[SYNC] ❌ Failed to update item ${item.id} in IndexedDB:`, updateError);
+            // Don't throw - we want to continue with other items
+          }
           
           if (attempts < this.maxRetries) {
             this.retryAttempts.set(item.id, attempts + 1);
@@ -390,6 +428,7 @@ class SyncService {
           } else {
             this.retryAttempts.set(item.id, attempts + 1);
             results.failed.push({ id: item.id, error: error.message, retry: false });
+            console.warn(`[SYNC] ⚠️ Item ${item.id} has exceeded max retry attempts (${this.maxRetries}). It will remain in IndexedDB but sync will not be retried automatically.`);
           }
         }
       }
@@ -403,6 +442,90 @@ class SyncService {
     } catch (error) {
       console.error(`Error syncing store ${storeName}:`, error);
       return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Build product ID mapping: frontend ID -> MongoDB _id
+   * This is called after products are synced to create a mapping
+   */
+  async buildProductIdMapping(getAllProducts, productIdMapping) {
+    try {
+      const products = await getAllProducts();
+      console.log('[SYNC] 🔗 Building product ID mapping...');
+      
+      for (const product of products) {
+        // Map frontend ID to MongoDB _id if product is synced
+        if (product.id && product._id && product.isSynced === true) {
+          productIdMapping.set(product.id, product._id);
+          console.log(`[SYNC] 🔗 Mapped product: ${product.id} -> ${product._id}`);
+        }
+      }
+      
+      console.log(`[SYNC] 🔗 Product ID mapping built: ${productIdMapping.size} products mapped`);
+    } catch (error) {
+      console.error('[SYNC] ❌ Error building product ID mapping:', error);
+    }
+  }
+
+  /**
+   * Update order items' productId fields before syncing orders
+   * Maps temporary frontend product IDs to MongoDB _id values
+   */
+  async updateOrderProductIds(getAllOrders, updateOrder, productIdMapping) {
+    try {
+      const orders = await getAllOrders();
+      const unsyncedOrders = orders.filter(order => order.isSynced !== true);
+      
+      if (unsyncedOrders.length === 0 || productIdMapping.size === 0) {
+        console.log('[SYNC] ℹ️ No orders to update or no product mapping available');
+        return;
+      }
+      
+      console.log(`[SYNC] 🔄 Updating productId in ${unsyncedOrders.length} unsynced orders...`);
+      let updatedCount = 0;
+      
+      for (const order of unsyncedOrders) {
+        if (!order.items || !Array.isArray(order.items)) {
+          continue;
+        }
+        
+        let orderUpdated = false;
+        const updatedItems = order.items.map(item => {
+          // If productId is a string (temporary frontend ID), try to map it
+          if (item.productId && typeof item.productId === 'string' && !item.productId.match(/^[0-9a-fA-F]{24}$/)) {
+            // This is a temporary frontend ID, try to find the MongoDB _id
+            const mongoId = productIdMapping.get(item.productId);
+            if (mongoId) {
+              console.log(`[SYNC] 🔄 Mapping order item productId: ${item.productId} -> ${mongoId}`);
+              orderUpdated = true;
+              return { ...item, productId: mongoId };
+            } else {
+              // Product not found in mapping - might not be synced yet or doesn't exist
+              // Set to null to avoid ObjectId cast error
+              console.warn(`[SYNC] ⚠️ Product ${item.productId} not found in mapping, setting productId to null`);
+              orderUpdated = true;
+              return { ...item, productId: null };
+            }
+          }
+          // If productId is already a valid MongoDB ObjectId string, keep it
+          return item;
+        });
+        
+        if (orderUpdated) {
+          const updatedOrder = {
+            ...order,
+            items: updatedItems
+          };
+          await updateOrder(updatedOrder);
+          updatedCount++;
+          console.log(`[SYNC] ✅ Updated order ${order.id} productId references`);
+        }
+      }
+      
+      console.log(`[SYNC] ✅ Updated ${updatedCount} orders with productId mappings`);
+    } catch (error) {
+      console.error('[SYNC] ❌ Error updating order productIds:', error);
     }
   }
 
@@ -445,6 +568,10 @@ class SyncService {
       const results = {};
       let totalSynced = 0;
       let totalFailed = 0;
+      
+      // Product ID mapping: frontend ID -> MongoDB _id
+      // This is used to update order items' productId after products are synced
+      const productIdMapping = new Map();
 
       // Sync in order: categories -> products -> customers -> orders -> transactions -> vendorOrders
       const syncOrder = ['categories', 'products', 'customers', 'orders', 'transactions', 'purchaseOrders'];
@@ -459,12 +586,29 @@ class SyncService {
             deleteItem: typeof storeFunctions.deleteItem
           });
           
+          // Before syncing products, build initial mapping from already-synced products
+          if (storeName === 'products') {
+            await this.buildProductIdMapping(storeFunctions.getAllItems, productIdMapping);
+          }
+          
+          // Before syncing orders, update productId references using the mapping
+          if (storeName === 'orders') {
+            await this.updateOrderProductIds(storeFunctions.getAllItems, storeFunctions.updateItem, productIdMapping);
+          }
+          
           const syncResult = await this.syncStore(
             storeName,
             storeFunctions.getAllItems,
             storeFunctions.updateItem,
             storeFunctions.deleteItem
           );
+          
+          // After products sync, rebuild the mapping to include newly synced products
+          if (storeName === 'products' && syncResult.synced > 0) {
+            // Rebuild mapping from IndexedDB (products should now have _id after sync)
+            await this.buildProductIdMapping(storeFunctions.getAllItems, productIdMapping);
+          }
+          
           results[storeName] = syncResult;
           totalSynced += syncResult.synced || 0;
           totalFailed += syncResult.failed || 0;
