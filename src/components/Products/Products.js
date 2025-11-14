@@ -132,10 +132,40 @@ const Products = () => {
       return false;
     }
 
+    // Get sellerId from auth (already retrieved on line 77)
+    const productSellerId = sellerId || getSellerIdFromAuth();
+
+    // Ensure product has both quantity and stock fields (backend uses 'stock', frontend may use 'quantity')
+    const quantity = productData.quantity || productData.stock || 0;
+    const stock = productData.stock !== undefined ? productData.stock : quantity;
+
+    // Ensure all required MongoDB fields are present
+    // MongoDB requires: name, stock, unit, costPrice, sellingUnitPrice, mfg, expiryDate, description
+    const now = new Date().toISOString();
+    const mfgDate = productData.mfg || productData.mfgDate || now;
+    const expiryDate = productData.expiryDate || now;
+    const description = productData.description || productData.name || ''; // Description is required, default to name if missing
+    const unit = productData.unit || productData.quantityUnit || 'pcs';
+    const costPrice = productData.costPrice !== undefined ? productData.costPrice : (productData.unitPrice || 0);
+    const sellingUnitPrice = productData.sellingUnitPrice !== undefined ? productData.sellingUnitPrice : (productData.sellingPrice || 0);
+
     const newProduct = {
       id: Date.now().toString(),
       ...productData,
-      createdAt: new Date().toISOString()
+      sellerId: productSellerId, // Add sellerId for sync consistency
+      quantity: quantity, // Frontend field
+      stock: stock, // Backend field (MongoDB uses 'stock')
+      unit: unit, // Required by MongoDB
+      costPrice: costPrice, // Required by MongoDB
+      unitPrice: costPrice, // Keep for backward compatibility
+      sellingUnitPrice: sellingUnitPrice, // Required by MongoDB
+      sellingPrice: sellingUnitPrice, // Keep for backward compatibility
+      mfg: mfgDate, // Required by MongoDB
+      mfgDate: mfgDate, // Keep for backward compatibility
+      expiryDate: expiryDate, // Required by MongoDB
+      description: description, // Required by MongoDB
+      createdAt: new Date().toISOString(),
+      isSynced: false // Explicitly mark as unsynced
     };
     dispatch({ type: 'ADD_PRODUCT', payload: newProduct });
     dispatch({ 
