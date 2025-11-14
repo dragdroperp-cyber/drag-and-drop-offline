@@ -1264,13 +1264,19 @@ const appReducer = (state, action) => {
       const isProductFromSyncCallback = action.payload.syncedAt !== undefined;
       const suppressProductSync = action.meta?.suppressProductSync === true;
       
+      // CRITICAL: Only mark as synced if it's actually from a sync callback (has syncedAt)
+      // suppressProductSync just prevents immediate sync trigger, but doesn't mean it's synced
+      // If payload explicitly sets isSynced: false, respect that (e.g., from order creation)
+      const shouldBeSynced = isProductFromSyncCallback && action.payload.isSynced === true;
+      
       const updatedProduct = { 
         ...action.payload,
-        // If from sync callback, preserve isSynced: true
-        // If user edit, ALWAYS set isSynced: false
-        isSynced: suppressProductSync ? true : (isProductFromSyncCallback ? true : false),
+        // Only mark as synced if it's from a sync callback AND explicitly marked as synced
+        // Otherwise, preserve the isSynced value from payload (which should be false for updates)
+        // If payload doesn't have isSynced, default to false (needs sync)
+        isSynced: shouldBeSynced ? true : (action.payload.isSynced !== undefined ? action.payload.isSynced : false),
         // Add isUpdate flag only for user edits (not sync callbacks)
-        isUpdate: isProductFromSyncCallback || suppressProductSync ? undefined : true,
+        isUpdate: isProductFromSyncCallback ? undefined : true,
         // Track when the update happened (only for user edits, sync has its own timestamp)
         updatedAt: isProductFromSyncCallback ? action.payload.updatedAt : new Date().toISOString()
       };
