@@ -600,9 +600,17 @@ const Billing = () => {
         stock: roundedUpdatedQuantity
       };
 
+      // CRITICAL: Ensure product is marked as unsynced when updated from order
+      // suppressProductSync prevents immediate sync trigger, but product still needs to sync later
+      const productToUpdate = {
+        ...updatedProduct,
+        isSynced: false, // Always mark as unsynced - hasn't synced to MongoDB yet
+        syncedAt: undefined // Ensure syncedAt is not set
+      };
+      
       dispatch({
         type: ActionTypes.UPDATE_PRODUCT,
-        payload: updatedProduct,
+        payload: productToUpdate,
         meta: { suppressProductSync: true }
       });
     });
@@ -1352,15 +1360,18 @@ const Billing = () => {
           console.log('========================');
           
           // Update product quantity - update both quantity and stock for MongoDB compatibility
+          // CRITICAL: Always set isSynced: false when updating from order creation
+          // The product hasn't synced to MongoDB yet, so it must remain unsynced
           const updatedProduct = {
             ...product,
             id: product.id, // Ensure ID is preserved
             quantity: finalQuantity,
             stock: finalQuantity, // MongoDB uses 'stock' field
-            isSynced: false // Mark as unsynced so it syncs to MongoDB
+            isSynced: false, // CRITICAL: Mark as unsynced - product hasn't synced to MongoDB yet
+            syncedAt: undefined // Ensure syncedAt is not set (would make it look like synced)
           };
           
-          console.log('Dispatching UPDATE_PRODUCT for:', updatedProduct.name, 'New quantity:', updatedProduct.quantity);
+          console.log('Dispatching UPDATE_PRODUCT for:', updatedProduct.name, 'New quantity:', updatedProduct.quantity, 'isSynced:', updatedProduct.isSynced);
           dispatch({
             type: ActionTypes.UPDATE_PRODUCT,
             payload: updatedProduct
