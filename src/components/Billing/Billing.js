@@ -2105,54 +2105,87 @@ const Billing = () => {
         segments.push(normalizedText);
       }
       
-      // If only one segment and no separators found, try to extract multiple products
-      // by matching words against product names
+      // If only one segment and no separators found, be conservative on mobile
+      // Only try word-by-word matching if the segment is long (likely multiple products)
+      // Otherwise, treat as a single product to avoid false positives
       if (segments.length === 1 && !normalizedText.match(/[,;]| and | then | also | plus /i)) {
         const words = segments[0].split(/\s+/).filter(w => w.length > 0);
         
-        // Try to match each word or combination of consecutive words as product names
-        const matchedProducts = new Set();
-        const wordsToCheck = [];
+        // Only try word-by-word matching if:
+        // 1. There are 3+ words (likely multiple products)
+        // 2. OR the segment is very long (20+ chars)
+        // This prevents single product names from being split incorrectly
+        const shouldTryWordMatching = words.length >= 3 || segments[0].length >= 20;
         
-        // Add single words
-        words.forEach(word => wordsToCheck.push(word));
-        
-        // Add combinations of 2-3 consecutive words (for products like "basmati rice", "red chilli powder")
-        for (let i = 0; i < words.length; i++) {
-          if (i + 1 < words.length) {
-            wordsToCheck.push(`${words[i]} ${words[i + 1]}`);
-          }
-          if (i + 2 < words.length) {
-            wordsToCheck.push(`${words[i]} ${words[i + 1]} ${words[i + 2]}`);
-          }
-        }
-        
-        // Try to match each word/combination against products
-        wordsToCheck.forEach(wordOrPhrase => {
-          const cleaned = extractProductName(wordOrPhrase);
-          if (cleaned) {
-            const product = findMatchingProduct(cleaned);
-            if (product && !matchedProducts.has(product.id)) {
-              matchedProducts.add(product.id);
-              const productKey = product.id || product.name.toLowerCase();
-              
-              if (!productMap.has(productKey)) {
-                const unit = product.unit || product.quantityUnit || 'pcs';
-                productMap.set(productKey, {
-                  product,
-                  quantity: 1,
-                  unit
-                });
-              }
-            } else if (!product && showToasts) {
-              // Product not found - show toast alert
-              showToast(`${cleaned} - This product not found`, 'error', 3000);
+        if (shouldTryWordMatching) {
+          // Try to match each word or combination of consecutive words as product names
+          const matchedProducts = new Set();
+          const wordsToCheck = [];
+          
+          // Prioritize multi-word combinations first (more likely to be product names)
+          // Add combinations of 2-3 consecutive words (for products like "basmati rice", "red chilli powder")
+          for (let i = 0; i < words.length; i++) {
+            if (i + 1 < words.length) {
+              wordsToCheck.push(`${words[i]} ${words[i + 1]}`);
+            }
+            if (i + 2 < words.length) {
+              wordsToCheck.push(`${words[i]} ${words[i + 1]} ${words[i + 2]}`);
             }
           }
-        });
-        
-        // If no products matched by word matching, fall back to treating whole segment as one product
-        if (matchedProducts.size === 0) {
+          
+          // Then add single words (less reliable, check last)
+          words.forEach(word => {
+            // Skip very short words (likely articles/prepositions)
+            if (word.length > 2) {
+              wordsToCheck.push(word);
+            }
+          });
+          
+          // Try to match each word/combination against products
+          wordsToCheck.forEach(wordOrPhrase => {
+            const cleaned = extractProductName(wordOrPhrase);
+            if (cleaned && cleaned.length > 2) { // Skip very short matches
+              const product = findMatchingProduct(cleaned);
+              if (product && !matchedProducts.has(product.id)) {
+                matchedProducts.add(product.id);
+                const productKey = product.id || product.name.toLowerCase();
+                
+                if (!productMap.has(productKey)) {
+                  const unit = product.unit || product.quantityUnit || 'pcs';
+                  productMap.set(productKey, {
+                    product,
+                    quantity: 1,
+                    unit
+                  });
+                }
+              }
+            }
+          });
+          
+          // If no products matched by word matching, fall back to treating whole segment as one product
+          if (matchedProducts.size === 0) {
+            const productName = extractProductName(segments[0]);
+            if (productName) {
+              const product = findMatchingProduct(productName);
+              if (product) {
+                const productKey = product.id || product.name.toLowerCase();
+                
+                if (!productMap.has(productKey)) {
+                  const unit = product.unit || product.quantityUnit || 'pcs';
+                  productMap.set(productKey, {
+                    product,
+                    quantity: 1,
+                    unit
+                  });
+                }
+              } else if (showToasts) {
+                // Product not found - show toast alert
+                showToast(`${productName} - This product not found`, 'error', 3000);
+              }
+            }
+          }
+        } else {
+          // Short segment - treat as single product (more reliable on mobile)
           const productName = extractProductName(segments[0]);
           if (productName) {
             const product = findMatchingProduct(productName);
@@ -2280,21 +2313,30 @@ const Billing = () => {
       return;
     }
 
+    // Prevent multiple recognition instances
     if (recognitionRef.current) {
       try {
         recognitionRef.current.stop();
+        recognitionRef.current = null;
       } catch (e) {
         // Ignore
       }
     }
 
-    shouldKeepListeningRef.current = true;
-    const recognition = new SpeechRecognition();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = 'en-US';
+    // Small delay to ensure previous recognition is fully stopped (especially on mobile)
+    setTimeout(() => {
+      if (!showVoiceModal) {
+        // If modal closed while waiting, don't start recognition
+        return;
+      }
 
-    recognition.onstart = () => {
+      shouldKeepListeningRef.current = true;
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = 'en-US';
+
+      recognition.onstart = () => {
       setIsListening(true);
       // Only clear transcript if modal is NOT open (for inline voice input)
       // When modal is open, preserve accumulated transcript so products don't disappear
@@ -2356,7 +2398,11 @@ const Billing = () => {
           clearTimeout(processTimeoutRef.current);
         }
 
-        // Wait for pause (1.5 seconds of silence) before processing the whole sentence
+        // Wait for pause before processing the whole sentence
+        // Use longer timeout on mobile to prevent premature processing
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        const pauseTimeout = isMobile ? 2500 : 1500; // Longer pause on mobile (2.5s vs 1.5s)
+        
         processTimeoutRef.current = setTimeout(() => {
           if (accumulatedTranscriptRef.current.trim()) {
             // Process the accumulated sentence all at once
@@ -2366,30 +2412,39 @@ const Billing = () => {
             accumulatedTranscriptRef.current = '';
             
             // Clear display transcript after a delay
-        setTimeout(() => {
-          setVoiceTranscript('');
-        }, 1000);
+            setTimeout(() => {
+              setVoiceTranscript('');
+            }, 1000);
           }
-        }, 1500); // Wait 1.5 seconds of silence before processing
+        }, pauseTimeout);
       }
     };
 
     recognition.onerror = (event) => {
       if (event.error === 'no-speech') {
-        // Auto-restart if no speech detected
-        setTimeout(() => {
-          if (shouldKeepListeningRef.current) {
-            try {
-              recognition.start();
-            } catch (e) {
-              // Ignore
+        // Auto-restart if no speech detected, but only if modal is open and we're still supposed to listen
+        // On mobile, be more conservative - don't auto-restart immediately
+        if (showVoiceModal && shouldKeepListeningRef.current) {
+          setTimeout(() => {
+            if (shouldKeepListeningRef.current && showVoiceModal && recognitionRef.current === recognition) {
+              try {
+                recognition.start();
+              } catch (e) {
+                // Ignore - recognition might already be starting
+              }
             }
-          }
-        }, 500);
+          }, 1000); // Longer delay on mobile to prevent continuous restarts
+        } else if (!showVoiceModal) {
+          // For inline voice input, don't auto-restart on no-speech
+          setIsListening(false);
+          shouldKeepListeningRef.current = false;
+        }
       } else {
         setIsListening(false);
         shouldKeepListeningRef.current = false;
-        showToast('Speech recognition error. Please try again.', 'error');
+        if (event.error !== 'aborted') {
+          showToast('Speech recognition error. Please try again.', 'error');
+        }
       }
     };
 
@@ -2415,27 +2470,38 @@ const Billing = () => {
         }
       }
       
-      // Auto-restart if still supposed to be listening
-      if (shouldKeepListeningRef.current) {
+      // Auto-restart ONLY if modal is open and we're still supposed to be listening
+      // On mobile, add a longer delay to prevent continuous restarts
+      if (shouldKeepListeningRef.current && showVoiceModal) {
+        const restartDelay = 300; // Slightly longer delay to prevent rapid restarts on mobile
         setTimeout(() => {
-          if (shouldKeepListeningRef.current && recognitionRef.current === recognition) {
+          // Double-check conditions before restarting
+          if (shouldKeepListeningRef.current && showVoiceModal && recognitionRef.current === recognition) {
             try {
               recognition.start();
             } catch (e) {
-              // Ignore
+              // Ignore - recognition might already be starting or stopped
+              console.log('Recognition restart skipped:', e.message);
             }
           }
-        }, 100);
+        }, restartDelay);
       }
     };
 
-    recognitionRef.current = recognition;
+      recognitionRef.current = recognition;
 
-    try {
-      recognition.start();
-    } catch (e) {
-      showToast('Failed to start listening. Please try again.', 'error');
-    }
+      try {
+        recognition.start();
+      } catch (e) {
+        console.error('Failed to start recognition:', e);
+        recognitionRef.current = null;
+        setIsListening(false);
+        shouldKeepListeningRef.current = false;
+        if (e.message && !e.message.includes('already started')) {
+          showToast('Failed to start listening. Please try again.', 'error');
+        }
+      }
+    }, 200); // Small delay to ensure clean start, especially on mobile
   };
 
   // Start voice recognition (checks for instructions first)
