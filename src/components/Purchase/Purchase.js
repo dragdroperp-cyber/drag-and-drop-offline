@@ -44,7 +44,7 @@ const Purchase = () => {
   const totalOrders = activeOrders.length;
   const pendingOrders = activeOrders.filter(order => order.status === 'pending').length;
   const completedOrders = activeOrders.filter(order => order.status === 'completed').length;
-  const totalValue = activeOrders.reduce((sum, order) => sum + (order.total || 0), 0);
+  const totalValue = activeOrders.reduce((sum, order) => sum + (Number(order.total) || 0), 0);
 
   const getStatusIcon = (status) => {
     switch (status) {
@@ -73,18 +73,68 @@ const Purchase = () => {
     }
   };
 
-  const handleStatusChange = (orderId, newStatus) => {
-    const order = state.purchaseOrders.find(o => o.id === orderId);
-    if (order) {
-      const updatedOrder = { ...order, status: newStatus };
-      dispatch({ type: 'UPDATE_PURCHASE_ORDER', payload: updatedOrder });
-      
-      dispatch({ type: 'ADD_ACTIVITY', payload: {
-        id: Date.now().toString(),
-        message: `Purchase order ${orderId} status changed to ${newStatus}`,
-        timestamp: new Date().toISOString(),
-        type: 'po_status_changed'
-      }});
+  const handleStatusChange = async (orderId, newStatus) => {
+    const order = state.purchaseOrders.find(o => 
+      String(o.id) === String(orderId) || 
+      (o._id && String(o._id) === String(orderId))
+    );
+    
+    if (!order) {
+      console.error('Purchase order not found:', orderId);
+      if (window.showToast) {
+        window.showToast('Purchase order not found', 'error');
+      }
+      return;
+    }
+
+    // Check if this is a newly created order (created within last 2 seconds)
+    // If so, wait a bit to ensure IndexedDB save is complete
+    const orderCreatedAt = order.createdAt ? new Date(order.createdAt).getTime() : 0;
+    const now = Date.now();
+    const timeSinceCreation = now - orderCreatedAt;
+    
+    if (timeSinceCreation < 2000 && !order.isSynced) {
+      console.log('⏳ [handleStatusChange] Newly created PO detected, waiting for IndexedDB save...', {
+        orderId,
+        timeSinceCreation: `${timeSinceCreation}ms`
+      });
+      // Wait a bit longer to ensure IndexedDB save is complete
+      await new Promise(resolve => setTimeout(resolve, 300));
+    }
+
+    // Ensure we pass the complete order with all fields preserved
+    const updatedOrder = { 
+      ...order, 
+      status: newStatus,
+      // Ensure ID fields are preserved
+      id: order.id,
+      _id: order._id,
+      // Preserve timestamps
+      createdAt: order.createdAt,
+      date: order.date || order.createdAt
+    };
+
+    console.log('🔄 [handleStatusChange] Updating purchase order:', {
+      orderId,
+      oldStatus: order.status,
+      newStatus,
+      orderIdType: typeof order.id,
+      order_idType: typeof order._id,
+      isSynced: order.isSynced,
+      timeSinceCreation: timeSinceCreation < 2000 ? `${timeSinceCreation}ms` : 'N/A'
+    });
+
+    dispatch({ type: 'UPDATE_PURCHASE_ORDER', payload: updatedOrder });
+    
+    dispatch({ type: 'ADD_ACTIVITY', payload: {
+      id: Date.now().toString(),
+      message: `Purchase order ${orderId} status changed to ${newStatus}`,
+      timestamp: new Date().toISOString(),
+      type: 'po_status_changed'
+    }});
+
+    if (window.showToast) {
+      window.showToast(`Purchase order status changed to ${newStatus}`, 'success');
     }
   };
 
@@ -122,77 +172,78 @@ const Purchase = () => {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6 fade-in-up">
       {/* Professional Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex flex-col gap-3 sm:gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h2 className="text-3xl font-bold" style={{ color: 'var(--text-primary)' }}>Purchase Orders</h2>
-          <p className="mt-2 font-medium" style={{ color: 'var(--text-secondary)' }}>Manage supplier orders and inventory</p>
+          <h2 className="text-xl sm:text-2xl lg:text-3xl font-bold" style={{ color: 'var(--text-primary)' }}>Purchase Orders</h2>
+          <p className="mt-1 sm:mt-2 text-sm sm:text-base font-medium" style={{ color: 'var(--text-secondary)' }}>Manage supplier orders and inventory</p>
         </div>
         
         <button
           onClick={() => setShowAddModal(true)}
-          className="btn-primary flex items-center mt-4 sm:mt-0"
+          className="btn-primary flex items-center justify-center mt-3 sm:mt-0 text-sm sm:text-base px-4 py-2 touch-manipulation"
         >
           <Plus className="h-4 w-4 mr-2" />
-          New Purchase Order
+          <span className="hidden sm:inline">New Purchase Order</span>
+          <span className="sm:hidden">New Order</span>
         </button>
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6">
-        <div className="stat-card h-full">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6">
+        <div className="stat-card h-full p-4 sm:p-6">
           <div className="flex items-center justify-between">
-            <div className="p-3 bg-blue-100 rounded-xl shrink-0">
-              <Truck className="h-6 w-6 text-blue-600" />
+            <div className="p-2 sm:p-3 bg-blue-100 rounded-xl shrink-0">
+              <Truck className="h-5 w-5 sm:h-6 sm:w-6 text-blue-600" />
             </div>
-            <div className="ml-4 flex-1">
-              <p className="text-sm font-medium text-gray-600">Total Orders</p>
-              <p className="text-2xl font-bold text-gray-900 leading-tight">{totalOrders}</p>
+            <div className="ml-2 sm:ml-4 flex-1 min-w-0">
+              <p className="text-xs sm:text-sm font-medium text-gray-600 truncate">Total Orders</p>
+              <p className="text-xl sm:text-2xl font-bold text-gray-900 leading-tight truncate">{totalOrders}</p>
             </div>
           </div>
         </div>
 
-        <div className="stat-card h-full">
+        <div className="stat-card h-full p-4 sm:p-6">
           <div className="flex items-center justify-between">
-            <div className="p-3 bg-yellow-100 rounded-xl shrink-0">
-              <Clock className="h-6 w-6 text-yellow-600" />
+            <div className="p-2 sm:p-3 bg-yellow-100 rounded-xl shrink-0">
+              <Clock className="h-5 w-5 sm:h-6 sm:w-6 text-yellow-600" />
             </div>
-            <div className="ml-4 flex-1">
-              <p className="text-sm font-medium text-gray-600">Pending</p>
-              <p className="text-2xl font-bold text-gray-900 leading-tight">{pendingOrders}</p>
+            <div className="ml-2 sm:ml-4 flex-1 min-w-0">
+              <p className="text-xs sm:text-sm font-medium text-gray-600 truncate">Pending</p>
+              <p className="text-xl sm:text-2xl font-bold text-gray-900 leading-tight truncate">{pendingOrders}</p>
             </div>
           </div>
         </div>
 
-        <div className="stat-card h-full">
+        <div className="stat-card h-full p-4 sm:p-6">
           <div className="flex items-center justify-between">
-            <div className="p-3 bg-green-100 rounded-xl shrink-0">
-              <CheckCircle className="h-6 w-6 text-green-600" />
+            <div className="p-2 sm:p-3 bg-green-100 rounded-xl shrink-0">
+              <CheckCircle className="h-5 w-5 sm:h-6 sm:w-6 text-green-600" />
             </div>
-            <div className="ml-4 flex-1">
-              <p className="text-sm font-medium text-gray-600">Completed</p>
-              <p className="text-2xl font-bold text-gray-900 leading-tight">{completedOrders}</p>
+            <div className="ml-2 sm:ml-4 flex-1 min-w-0">
+              <p className="text-xs sm:text-sm font-medium text-gray-600 truncate">Completed</p>
+              <p className="text-xl sm:text-2xl font-bold text-gray-900 leading-tight truncate">{completedOrders}</p>
             </div>
           </div>
         </div>
 
-        <div className="stat-card h-full">
+        <div className="stat-card h-full p-4 sm:p-6">
           <div className="flex items-center justify-between">
-            <div className="p-3 bg-purple-100 rounded-xl shrink-0">
-              <Package className="h-6 w-6 text-purple-600" />
+            <div className="p-2 sm:p-3 bg-purple-100 rounded-xl shrink-0">
+              <Package className="h-5 w-5 sm:h-6 sm:w-6 text-purple-600" />
             </div>
-            <div className="ml-4 flex-1">
-              <p className="text-sm font-medium text-gray-600">Total Value</p>
-              <p className="text-2xl font-bold text-gray-900 leading-tight">₹{totalValue.toFixed(2)}</p>
+            <div className="ml-2 sm:ml-4 flex-1 min-w-0">
+              <p className="text-xs sm:text-sm font-medium text-gray-600 truncate">Total Value</p>
+              <p className="text-lg sm:text-2xl font-bold text-gray-900 leading-tight truncate">₹{totalValue.toFixed(2)}</p>
             </div>
           </div>
         </div>
       </div>
 
       {/* Filters and Search */}
-      <div className="card">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      <div className="card p-4 sm:p-6">
+        <div className="flex flex-col gap-3 sm:gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="w-full lg:max-w-lg">
-            <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="purchase-search">
+            <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2" htmlFor="purchase-search">
               Search purchase orders
             </label>
             <input
@@ -201,19 +252,19 @@ const Purchase = () => {
               placeholder="Type supplier name or order ID"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="input-field"
+              className="input-field w-full text-sm sm:text-base"
             />
           </div>
           
           <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center lg:w-auto">
-            <label className="block text-sm font-medium text-gray-700 sm:hidden" htmlFor="purchase-status-filter">
+            <label className="block text-xs sm:text-sm font-medium text-gray-700 sm:hidden" htmlFor="purchase-status-filter">
               Filter by status
             </label>
             <select
               id="purchase-status-filter"
               value={filterStatus}
               onChange={(e) => setFilterStatus(e.target.value)}
-              className="input-field w-full sm:w-48"
+              className="input-field w-full sm:w-48 text-sm sm:text-base"
             >
               <option value="all">All Status</option>
               <option value="pending">Pending</option>
@@ -224,8 +275,8 @@ const Purchase = () => {
         </div>
       </div>
 
-      {/* Purchase Orders Table */}
-      <div className="card">
+      {/* Purchase Orders Table - Desktop View */}
+      <div className="card hidden lg:block">
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-slate-200 text-sm">
             <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -255,7 +306,7 @@ const Purchase = () => {
                       </div>
                       <div className="min-w-0 flex-1">
                         <p className="font-medium text-slate-900 truncate" title={order.supplierName || 'Unknown Supplier'}>{order.supplierName || 'Unknown Supplier'}</p>
-                        <p className="text-xs text-slate-500 truncate">PO Value • ₹{order.total?.toFixed(2) || '0.00'}</p>
+                        <p className="text-xs text-slate-500 truncate">PO Value • ₹{Number(order.total || 0).toFixed(2)}</p>
                       </div>
                     </div>
                   </td>
@@ -265,7 +316,7 @@ const Purchase = () => {
                     </span>
                   </td>
                   <td className="px-4 py-4 text-right font-semibold text-slate-900 align-top whitespace-nowrap">
-                    ₹{order.total?.toFixed(2) || '0.00'}
+                    ₹{Number(order.total || 0).toFixed(2)}
                   </td>
                   <td className="px-4 py-4 align-top">
                     <span className={`${getStatusBadge(order.status)} inline-flex items-center gap-1`}>
@@ -310,10 +361,73 @@ const Purchase = () => {
             </tbody>
           </table>
         </div>
+      </div>
 
-        {/* Empty State */}
-        {paginatedOrders.length === 0 && (
-          <div className="text-center py-12">
+      {/* Purchase Orders Cards - Mobile/Tablet View */}
+      <div className="lg:hidden space-y-3">
+        {paginatedOrders.length > 0 ? (
+          paginatedOrders.map((order) => (
+            <div key={order.id} className="card p-4 hover:shadow-md transition-shadow">
+              <div className="flex items-start justify-between mb-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-100 text-indigo-600 shrink-0">
+                      <Truck className="h-4 w-4" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <h3 className="text-base font-semibold text-gray-900 truncate">
+                        {order.supplierName || 'Unknown Supplier'}
+                      </h3>
+                      <p className="text-xs text-gray-500 truncate">#{order.id}</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="ml-3 flex items-center gap-2 flex-shrink-0">
+                  {order.status === 'pending' && (
+                    <button
+                      onClick={() => handleStatusChange(order.id, 'completed')}
+                      className="p-2.5 rounded-lg border border-green-100 bg-green-50 text-green-600 active:bg-green-100 transition-colors touch-manipulation"
+                      title="Mark as completed"
+                    >
+                      <CheckCircle className="h-5 w-5" />
+                    </button>
+                  )}
+                  <button
+                    onClick={() => handleDeleteOrder(order.id)}
+                    className="p-2.5 rounded-lg text-red-600 active:bg-red-50 transition-colors touch-manipulation"
+                    title="Delete order"
+                  >
+                    <Trash2 className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-3 mb-3">
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Total Value</p>
+                  <p className="text-lg font-bold text-gray-900">₹{Number(order.total || 0).toFixed(2)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Items</p>
+                  <span className="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700">
+                    {order.items?.length || 0} {order.items?.length === 1 ? 'item' : 'items'}
+                  </span>
+                </div>
+              </div>
+              
+              <div className="flex items-center justify-between pt-3 border-t border-gray-200">
+                <span className={`${getStatusBadge(order.status)} inline-flex items-center gap-1`}>
+                  {getStatusIcon(order.status)}
+                  <span className="capitalize">{order.status}</span>
+                </span>
+                <p className="text-xs text-gray-500">
+                  {order.date ? new Date(order.date).toLocaleDateString() : 'N/A'}
+                </p>
+              </div>
+            </div>
+          ))
+        ) : (
+          <div className="card p-12 text-center">
             <Truck className="h-16 w-16 mx-auto text-gray-300 mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">No Purchase Orders</h3>
             <p className="text-gray-600 mb-6">Get started by creating your first purchase order</p>
@@ -325,35 +439,68 @@ const Purchase = () => {
             </button>
           </div>
         )}
+      </div>
 
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between mt-6">
-            <div className="text-sm text-gray-700">
-              Showing {startIndex + 1} to {Math.min(startIndex + itemsPerPage, filteredOrders.length)} of {filteredOrders.length} results
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <>
+          {/* Desktop Pagination */}
+          <div className="hidden lg:flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-4 mt-4 sm:mt-6 px-3 sm:px-4 py-3 sm:py-4 bg-gray-50 rounded-xl border border-gray-200">
+            <div className="text-xs sm:text-sm text-gray-700 text-center sm:text-left">
+              Showing <span className="font-semibold">{startIndex + 1}</span> to{' '}
+              <span className="font-semibold">{Math.min(startIndex + itemsPerPage, filteredOrders.length)}</span> of{' '}
+              <span className="font-semibold">{filteredOrders.length}</span> results
             </div>
-            <div className="flex space-x-2">
+            <div className="flex items-center gap-2">
               <button
                 onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
                 disabled={currentPage === 1}
-                className="px-3 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="px-3 py-2 text-xs sm:text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-lg active:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
               >
                 Previous
               </button>
-              <span className="px-3 py-2 text-sm font-medium text-gray-700">
+              <span className="px-2 sm:px-3 py-2 text-xs sm:text-sm font-medium text-gray-700">
                 Page {currentPage} of {totalPages}
               </span>
               <button
                 onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
                 disabled={currentPage === totalPages}
-                className="px-3 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="px-3 py-2 text-xs sm:text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-lg active:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
               >
                 Next
               </button>
             </div>
           </div>
-        )}
-      </div>
+
+          {/* Mobile Pagination */}
+          <div className="lg:hidden flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-4 px-3 sm:px-4 py-3 sm:py-4 bg-gray-50 rounded-xl border border-gray-200">
+            <div className="text-xs sm:text-sm text-gray-700 text-center sm:text-left">
+              Showing <span className="font-semibold">{startIndex + 1}</span> to{' '}
+              <span className="font-semibold">{Math.min(startIndex + itemsPerPage, filteredOrders.length)}</span> of{' '}
+              <span className="font-semibold">{filteredOrders.length}</span> results
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                disabled={currentPage === 1}
+                className="px-3 py-2 text-xs sm:text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-lg active:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
+              >
+                Previous
+              </button>
+              <span className="px-2 sm:px-3 py-2 text-xs sm:text-sm font-medium text-gray-700">
+                Page {currentPage} of {totalPages}
+              </span>
+              <button
+                onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                disabled={currentPage === totalPages}
+                className="px-3 py-2 text-xs sm:text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-lg active:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Add Purchase Order Modal */}
       {showAddModal && (
@@ -620,18 +767,19 @@ const AddPurchaseOrderModal = ({ onClose, onSave }) => {
 
   return (
     <div className="professional-modal">
-      <div className="professional-modal-content">
-        <div className="flex items-center justify-between p-6 border-b" style={{ borderColor: 'var(--border-subtle)' }}>
-          <div className="flex items-center">
-            <div className="p-2 rounded-xl mr-3" style={{ background: 'rgba(47, 60, 126, 0.12)' }}>
-              <Truck className="h-6 w-6" style={{ color: '#2F3C7E' }} />
+      <div className="professional-modal-content max-h-[95vh] sm:max-h-[90vh]">
+        <div className="flex items-center justify-between p-4 sm:p-6 border-b" style={{ borderColor: 'var(--border-subtle)' }}>
+          <div className="flex items-center min-w-0 flex-1">
+            <div className="p-2 rounded-xl mr-2 sm:mr-3 shrink-0" style={{ background: 'rgba(47, 60, 126, 0.12)' }}>
+              <Truck className="h-5 w-5 sm:h-6 sm:w-6" style={{ color: '#2F3C7E' }} />
             </div>
-            <h2 className="text-xl font-semibold" style={{ color: 'var(--text-primary)' }}>New Purchase Order</h2>
+            <h2 className="text-lg sm:text-xl font-semibold truncate" style={{ color: 'var(--text-primary)' }}>New Purchase Order</h2>
           </div>
           <button
             onClick={onClose}
-            className="p-2 rounded-lg transition-colors hover:bg-gray-100"
+            className="p-2 rounded-lg transition-colors active:bg-gray-100 touch-manipulation shrink-0 ml-2"
             style={{ color: 'var(--text-secondary)' }}
+            aria-label="Close"
           >
             <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -639,10 +787,10 @@ const AddPurchaseOrderModal = ({ onClose, onSave }) => {
           </button>
         </div>
 
-        <div className="overflow-y-auto" style={{ maxHeight: 'calc(90vh - 80px)' }}>
-          <form onSubmit={handleSubmit} className="p-6 space-y-6" style={{ position: 'relative' }}>
+        <div className="overflow-y-auto" style={{ maxHeight: 'calc(95vh - 80px)' }}>
+          <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4 sm:space-y-6" style={{ position: 'relative' }}>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
               Supplier Name * <span className="text-red-500">(Required)</span>
             </label>
             <input
@@ -650,56 +798,59 @@ const AddPurchaseOrderModal = ({ onClose, onSave }) => {
               name="supplierName"
               value={formData.supplierName}
               onChange={handleChange}
-              className="input-field"
+              className="input-field w-full text-sm sm:text-base"
               placeholder="Enter supplier name"
               required
             />
           </div>
 
           <div>
-            <div className="flex items-center justify-between mb-4">
-              <label className="block text-sm font-medium text-gray-700">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+              <label className="block text-xs sm:text-sm font-medium text-gray-700">
                 Items ({formData.items.length})
               </label>
-              <div className="flex space-x-2">
+              <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
                 <button
                   type="button"
                   onClick={() => setShowProductSearch(true)}
-                  className="btn-secondary text-sm"
+                  className="btn-secondary text-xs sm:text-sm px-3 py-2 touch-manipulation flex items-center justify-center"
                 >
                   <Search className="h-4 w-4 mr-1" />
-                  Search Products
+                  <span className="hidden sm:inline">Search Products</span>
+                  <span className="sm:hidden">Search</span>
                 </button>
                 <button
                   type="button"
                   onClick={addItem}
-                  className="btn-secondary text-sm"
+                  className="btn-secondary text-xs sm:text-sm px-3 py-2 touch-manipulation flex items-center justify-center"
                 >
                   <Plus className="h-4 w-4 mr-1" />
-                  Add Manually
+                  <span className="hidden sm:inline">Add Manually</span>
+                  <span className="sm:hidden">Add</span>
                 </button>
               </div>
             </div>
 
             {/* Product Search Modal */}
             {showProductSearch && (
-              <div className="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-50">
-                <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-96 overflow-hidden">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-semibold">Search Products</h3>
+              <div className="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-50 p-2 sm:p-4">
+                <div className="bg-white rounded-lg p-4 sm:p-6 w-full max-w-2xl max-h-[90vh] sm:max-h-96 overflow-hidden flex flex-col">
+                  <div className="flex items-center justify-between mb-4 flex-shrink-0">
+                    <h3 className="text-base sm:text-lg font-semibold">Search Products</h3>
                     <button
                       onClick={() => {
                         setShowProductSearch(false);
                         setSearchTerm('');
                       }}
-                      className="text-gray-500 hover:text-gray-700"
+                      className="text-gray-500 active:text-gray-700 p-2 touch-manipulation"
+                      aria-label="Close"
                     >
                       ×
                     </button>
                   </div>
                   
-                  <div className="mb-4">
-                    <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="product-search-input">
+                  <div className="mb-4 flex-shrink-0">
+                    <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2" htmlFor="product-search-input">
                       Search products
                     </label>
                     <input
@@ -708,38 +859,38 @@ const AddPurchaseOrderModal = ({ onClose, onSave }) => {
                       placeholder="Search products by name or category..."
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
-                      className="input-field"
+                      className="input-field w-full text-sm sm:text-base"
                       autoFocus
                     />
                   </div>
                   
-                  <div className="max-h-60 overflow-y-auto space-y-2">
+                  <div className="flex-1 overflow-y-auto space-y-2 min-h-0">
                     {filteredProducts.map(product => (
                       <div
                         key={product.id}
                         onClick={() => addProductToOrder(product)}
-                        className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-blue-50 cursor-pointer transition-colors"
+                        className="flex items-center justify-between p-3 bg-gray-50 rounded-lg active:bg-blue-50 cursor-pointer transition-colors touch-manipulation"
                       >
-                        <div>
-                          <p className="font-medium text-gray-900">{product.name}</p>
-                          <p className="text-sm text-gray-600">
-                            {product.category} • Quantity: {product.quantity || product.stock || 0} {product.quantityUnit || product.unit || 'pcs'}
+                        <div className="min-w-0 flex-1 pr-2">
+                          <p className="font-medium text-gray-900 text-sm sm:text-base truncate">{product.name}</p>
+                          <p className="text-xs sm:text-sm text-gray-600 truncate">
+                            {product.category} • Qty: {product.quantity || product.stock || 0} {product.quantityUnit || product.unit || 'pcs'}
                           </p>
                         </div>
-                        <div className="text-right">
-                          <p className="font-semibold text-blue-600">₹{(product.price || 0).toFixed(2)}</p>
+                        <div className="text-right shrink-0">
+                          <p className="font-semibold text-blue-600 text-sm sm:text-base">₹{(Number(product.price) || 0).toFixed(2)}</p>
                           <button
                             type="button"
-                            className="text-xs text-blue-600 hover:text-blue-800"
+                            className="text-xs text-blue-600 active:text-blue-800"
                           >
-                            Add to Order
+                            Add
                           </button>
                         </div>
                       </div>
                     ))}
                     
                     {filteredProducts.length === 0 && searchTerm && (
-                      <div className="text-center py-8 text-gray-500">
+                      <div className="text-center py-8 text-gray-500 text-sm">
                         No products found matching "{searchTerm}"
                       </div>
                     )}
@@ -757,7 +908,7 @@ const AddPurchaseOrderModal = ({ onClose, onSave }) => {
                     background: 'var(--surface-alt)',
                     borderColor: 'var(--border-subtle)'
                   }}>
-                    <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:items-end">
+                    <div className="grid grid-cols-1 gap-3 sm:gap-4 lg:grid-cols-12 lg:items-end">
                       {/* Product Selection - Takes more space */}
                       <div className="lg:col-span-4">
                         <div className="flex items-center space-x-2 mb-2">
@@ -765,7 +916,7 @@ const AddPurchaseOrderModal = ({ onClose, onSave }) => {
                           <button
                             type="button"
                             onClick={() => toggleCustomProduct(index)}
-                            className={`text-xs px-2 py-1 rounded-lg font-medium transition-colors ${
+                            className={`text-xs px-2 py-1 rounded-lg font-medium transition-colors touch-manipulation ${
                               item.isCustomProduct 
                                 ? 'bg-blue-100 text-blue-700' 
                                 : 'bg-gray-100 text-gray-600'
@@ -952,17 +1103,17 @@ const AddPurchaseOrderModal = ({ onClose, onSave }) => {
             />
           </div>
 
-          <div className="flex justify-end space-x-3 pt-6 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
+          <div className="flex flex-col sm:flex-row justify-end gap-2 sm:space-x-3 pt-4 sm:pt-6 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
             <button
               type="button"
               onClick={onClose}
-              className="btn-secondary"
+              className="btn-secondary w-full sm:w-auto text-sm sm:text-base px-4 py-2 touch-manipulation"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="btn-primary"
+              className="btn-primary w-full sm:w-auto text-sm sm:text-base px-4 py-2 touch-manipulation"
             >
               Create Purchase Order
             </button>
