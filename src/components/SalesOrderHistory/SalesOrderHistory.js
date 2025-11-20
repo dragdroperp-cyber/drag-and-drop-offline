@@ -698,16 +698,16 @@ const SalesOrderHistory = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Sales Order History</h1>
-          <p className="text-sm text-gray-600 mt-1">View and manage all your sales orders</p>
+          <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-900">Sales Order History</h1>
+          <p className="text-xs sm:text-sm text-gray-600 mt-1">View and manage all your sales orders</p>
         </div>
         <div className="flex items-center gap-2">
           <div className="relative" ref={exportMenuRef}>
             <button
               onClick={() => setShowExportMenu(!showExportMenu)}
-              className="btn-secondary flex items-center gap-2"
+              className="btn-secondary flex items-center gap-2 text-sm px-3 sm:px-4 py-2 touch-manipulation"
             >
               <Download className="h-4 w-4" />
               <span className="hidden sm:inline">Export</span>
@@ -751,11 +751,11 @@ const SalesOrderHistory = () => {
       </div>
 
       {/* Search and Filters */}
-      <div className="card">
-        <div className="flex flex-col gap-4">
+      <div className="card p-4 sm:p-6">
+        <div className="flex flex-col gap-3 sm:gap-4">
           {/* Search */}
           <div>
-            <label htmlFor="order-search" className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="order-search" className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
               Search Orders
             </label>
             <input
@@ -767,7 +767,7 @@ const SalesOrderHistory = () => {
                 setSearchTerm(e.target.value);
                 setCurrentPage(1);
               }}
-              className="input-field w-full"
+              className="input-field w-full text-sm sm:text-base"
             />
           </div>
 
@@ -775,8 +775,8 @@ const SalesOrderHistory = () => {
           <div className="flex flex-col lg:flex-row lg:items-end gap-4">
             {/* Payment Method Filter */}
             <div className="flex-1 flex flex-col">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Payment Method</label>
-              <div className="inline-flex items-center rounded-full border border-slate-200 bg-white/80 p-1 shadow-sm w-full h-[42px]">
+              <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">Payment Method</label>
+              <div className="inline-flex items-center rounded-full border border-slate-200 bg-white/80 p-1 shadow-sm w-full h-[44px] sm:h-[42px]">
                 {[
                   { value: 'all', label: 'All' },
                   { value: 'cash', label: 'Cash' },
@@ -792,10 +792,10 @@ const SalesOrderHistory = () => {
                         setFilterPaymentMethod(option.value);
                         setCurrentPage(1);
                       }}
-                      className={`px-3 py-1.5 text-xs font-medium rounded-full transition sm:text-sm flex-1 h-full flex items-center justify-center ${
+                      className={`px-2 sm:px-3 py-2 sm:py-1.5 text-xs font-medium rounded-full transition flex-1 h-full flex items-center justify-center touch-manipulation ${
                         isActive
                           ? 'bg-gradient-to-r from-[#2f3c7e] to-[#18224f] text-white shadow'
-                          : 'text-slate-600 hover:text-[#2f3c7e] hover:bg-white'
+                          : 'text-slate-600 active:bg-gray-100'
                       }`}
                     >
                       {option.label}
@@ -807,8 +807,8 @@ const SalesOrderHistory = () => {
 
             {/* Date Range Filter */}
             <div className="flex-1 flex flex-col">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Date Range</label>
-              <div className="inline-flex items-center rounded-full border border-slate-200 bg-white/80 p-1 shadow-sm w-full h-[42px]">
+              <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">Date Range</label>
+              <div className="inline-flex items-center rounded-full border border-slate-200 bg-white/80 p-1 shadow-sm w-full h-[44px] sm:h-[42px]">
                 {[
                   { value: 'all', label: 'All Time' },
                   { value: 'today', label: 'Today' },
@@ -824,13 +824,14 @@ const SalesOrderHistory = () => {
                         setFilterDateRange(option.value);
                         setCurrentPage(1);
                       }}
-                      className={`px-3 py-1.5 text-xs font-medium rounded-full transition sm:text-sm flex-1 h-full flex items-center justify-center ${
+                      className={`px-2 sm:px-3 py-2 sm:py-1.5 text-xs font-medium rounded-full transition flex-1 h-full flex items-center justify-center touch-manipulation ${
                         isActive
                           ? 'bg-gradient-to-r from-[#2f3c7e] to-[#18224f] text-white shadow'
-                          : 'text-slate-600 hover:text-[#2f3c7e] hover:bg-white'
+                          : 'text-slate-600 active:bg-gray-100'
                       }`}
                     >
-                      {option.label}
+                      <span className="hidden sm:inline">{option.label}</span>
+                      <span className="sm:hidden">{option.value === 'all' ? 'All' : option.value === 'today' ? 'Today' : option.value === 'week' ? '7 Days' : '30 Days'}</span>
                     </button>
                   );
                 })}
@@ -841,47 +842,47 @@ const SalesOrderHistory = () => {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="card">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        <div className="card p-4 sm:p-6">
           <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">Total Orders</p>
-              <p className="text-2xl font-bold text-gray-900 mt-1">{filteredOrders.length}</p>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs sm:text-sm text-gray-600 truncate">Total Orders</p>
+              <p className="text-xl sm:text-2xl font-bold text-gray-900 mt-1 truncate">{filteredOrders.length}</p>
             </div>
-            <Receipt className="h-8 w-8 text-indigo-500" />
+            <Receipt className="h-6 w-6 sm:h-8 sm:w-8 text-indigo-500 flex-shrink-0 ml-2" />
           </div>
         </div>
-        <div className="card">
+        <div className="card p-4 sm:p-6">
           <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">Total Sales</p>
-              <p className="text-2xl font-bold text-gray-900 mt-1">{formatCurrency(totalSales)}</p>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs sm:text-sm text-gray-600 truncate">Total Sales</p>
+              <p className="text-lg sm:text-2xl font-bold text-gray-900 mt-1 truncate">{formatCurrency(totalSales)}</p>
             </div>
-            <Receipt className="h-8 w-8 text-green-500" />
+            <Receipt className="h-6 w-6 sm:h-8 sm:w-8 text-green-500 flex-shrink-0 ml-2" />
           </div>
         </div>
-        <div className="card">
+        <div className="card p-4 sm:p-6">
           <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">Cash Sales</p>
-              <p className="text-2xl font-bold text-gray-900 mt-1">{formatCurrency(cashSales)}</p>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs sm:text-sm text-gray-600 truncate">Cash Sales</p>
+              <p className="text-lg sm:text-2xl font-bold text-gray-900 mt-1 truncate">{formatCurrency(cashSales)}</p>
             </div>
-            <Receipt className="h-8 w-8 text-emerald-500" />
+            <Receipt className="h-6 w-6 sm:h-8 sm:w-8 text-emerald-500 flex-shrink-0 ml-2" />
           </div>
         </div>
-        <div className="card">
+        <div className="card p-4 sm:p-6">
           <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">Online Sales</p>
-              <p className="text-2xl font-bold text-gray-900 mt-1">{formatCurrency(onlineSales)}</p>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs sm:text-sm text-gray-600 truncate">Online Sales</p>
+              <p className="text-lg sm:text-2xl font-bold text-gray-900 mt-1 truncate">{formatCurrency(onlineSales)}</p>
             </div>
-            <Receipt className="h-8 w-8 text-blue-500" />
+            <Receipt className="h-6 w-6 sm:h-8 sm:w-8 text-blue-500 flex-shrink-0 ml-2" />
           </div>
         </div>
       </div>
 
-      {/* Orders Table */}
-      <div className="card">
+      {/* Orders Table - Desktop View */}
+      <div className="card hidden lg:block">
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
@@ -951,11 +952,75 @@ const SalesOrderHistory = () => {
             </tbody>
           </table>
         </div>
+      </div>
 
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-6 px-4 py-4 bg-gray-50 rounded-xl border border-gray-200">
-            <div className="text-sm text-gray-700">
+      {/* Orders Cards - Mobile/Tablet View */}
+      <div className="lg:hidden space-y-3">
+        {paginatedOrders.length > 0 ? (
+          paginatedOrders.map((order) => (
+            <div key={order.id} className="card p-4 hover:shadow-md transition-shadow">
+              <div className="flex items-start justify-between mb-3">
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-base font-semibold text-gray-900 truncate">
+                    {order.customerName || 'Walk-in Customer'}
+                  </h3>
+                  {order.customerMobile && (
+                    <p className="text-sm text-gray-600 mt-1">{order.customerMobile}</p>
+                  )}
+                </div>
+                <div className="ml-3 flex items-center gap-2 flex-shrink-0">
+                  <button
+                    onClick={() => handleViewOrder(order)}
+                    className="p-2.5 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 rounded-lg transition-colors touch-manipulation"
+                    title="View Details"
+                  >
+                    <Eye className="h-5 w-5" />
+                  </button>
+                  {order.customerMobile && (
+                    <button
+                      onClick={() => handleShareInvoice(order)}
+                      className="p-2.5 text-green-600 hover:text-green-700 hover:bg-green-50 rounded-lg transition-colors touch-manipulation"
+                      title="Share Invoice on WhatsApp"
+                    >
+                      <Share2 className="h-5 w-5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-3 mb-3">
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Amount</p>
+                  <p className="text-lg font-bold text-gray-900">{formatCurrency(order.totalAmount || order.total)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Payment</p>
+                  <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${getPaymentMethodBadgeClass(order.paymentMethod)}`}>
+                    {getPaymentMethodLabel(order.paymentMethod, order.splitPaymentDetails) || 'N/A'}
+                  </span>
+                </div>
+              </div>
+              
+              <div className="pt-3 border-t border-gray-200">
+                <p className="text-xs text-gray-500">{formatDateTime(order.createdAt || order.date)}</p>
+              </div>
+            </div>
+          ))
+        ) : (
+          <div className="card p-12 text-center">
+            <Receipt className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+            <p className="text-gray-600 text-base">No orders found</p>
+            {searchTerm || filterPaymentMethod !== 'all' || filterDateRange !== 'all' ? (
+              <p className="text-sm text-gray-500 mt-2">Try adjusting your filters</p>
+            ) : null}
+          </div>
+        )}
+      </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-4 mt-4 sm:mt-6 px-3 sm:px-4 py-3 sm:py-4 bg-gray-50 rounded-xl border border-gray-200">
+            <div className="text-xs sm:text-sm text-gray-700 text-center sm:text-left">
               Showing <span className="font-semibold">{startIndex + 1}</span> to{' '}
               <span className="font-semibold">{Math.min(startIndex + itemsPerPage, filteredOrders.length)}</span> of{' '}
               <span className="font-semibold">{filteredOrders.length}</span> orders
@@ -964,28 +1029,30 @@ const SalesOrderHistory = () => {
               <button
                 onClick={() => handlePageChange(1)}
                 disabled={currentPage === 1}
-                className="p-2 text-gray-500 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 hover:text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="p-2 sm:p-2 text-gray-500 bg-white border border-gray-300 rounded-lg active:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
+                aria-label="First page"
               >
-                <ChevronsLeft className="h-4 w-4" />
+                <ChevronsLeft className="h-4 w-4 sm:h-4 sm:w-4" />
               </button>
               <button
                 onClick={() => handlePageChange(currentPage - 1)}
                 disabled={currentPage === 1}
-                className="p-2 text-gray-500 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 hover:text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="p-2 sm:p-2 text-gray-500 bg-white border border-gray-300 rounded-lg active:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
+                aria-label="Previous page"
               >
-                <ChevronLeft className="h-4 w-4" />
+                <ChevronLeft className="h-4 w-4 sm:h-4 sm:w-4" />
               </button>
               {getPageNumbers().map((page, index) => (
                 <React.Fragment key={index}>
                   {page === 'ellipsis' ? (
-                    <span className="px-2 text-gray-500">...</span>
+                    <span className="px-1 sm:px-2 text-gray-500 text-xs sm:text-sm">...</span>
                   ) : (
                     <button
                       onClick={() => handlePageChange(page)}
-                      className={`px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+                      className={`px-2.5 sm:px-3 py-2 text-xs sm:text-sm font-medium rounded-lg transition-colors touch-manipulation ${
                         currentPage === page
                           ? 'bg-indigo-600 text-white'
-                          : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+                          : 'bg-white text-gray-700 border border-gray-300 active:bg-gray-50'
                       }`}
                     >
                       {page}
@@ -996,57 +1063,60 @@ const SalesOrderHistory = () => {
               <button
                 onClick={() => handlePageChange(currentPage + 1)}
                 disabled={currentPage === totalPages}
-                className="p-2 text-gray-500 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 hover:text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="p-2 sm:p-2 text-gray-500 bg-white border border-gray-300 rounded-lg active:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
+                aria-label="Next page"
               >
-                <ChevronRight className="h-4 w-4" />
+                <ChevronRight className="h-4 w-4 sm:h-4 sm:w-4" />
               </button>
               <button
                 onClick={() => handlePageChange(totalPages)}
                 disabled={currentPage === totalPages}
-                className="p-2 text-gray-500 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 hover:text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="p-2 sm:p-2 text-gray-500 bg-white border border-gray-300 rounded-lg active:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
+                aria-label="Last page"
               >
-                <ChevronsRight className="h-4 w-4" />
+                <ChevronsRight className="h-4 w-4 sm:h-4 sm:w-4" />
               </button>
             </div>
           </div>
         )}
-      </div>
+      )}
 
       {/* Order Details Modal */}
       {showOrderDetails && selectedOrder && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
-            <div className="flex items-center justify-between p-6 border-b border-gray-200 flex-shrink-0">
-              <h2 className="text-2xl font-bold text-gray-900">Order Details</h2>
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-2 sm:p-4 overflow-y-auto">
+          <div className="bg-white rounded-xl sm:rounded-2xl shadow-xl w-full max-w-3xl max-h-[95vh] sm:max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between p-4 sm:p-6 border-b border-gray-200 flex-shrink-0">
+              <h2 className="text-xl sm:text-2xl font-bold text-gray-900">Order Details</h2>
               <button
                 onClick={() => {
                   setShowOrderDetails(false);
                   setSelectedOrder(null);
                 }}
-                className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                className="p-2 text-gray-400 active:text-gray-600 active:bg-gray-100 rounded-lg transition-colors touch-manipulation"
+                aria-label="Close"
               >
-                <X className="h-5 w-5" />
+                <X className="h-5 w-5 sm:h-5 sm:w-5" />
               </button>
             </div>
-            <div className="overflow-y-auto flex-1 p-6">
-              <div className="space-y-6">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="overflow-y-auto flex-1 p-4 sm:p-6">
+              <div className="space-y-4 sm:space-y-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                   <div>
-                    <p className="text-sm text-gray-600 mb-1">Date</p>
-                    <p className="text-lg font-semibold text-gray-900">{formatDateTime(selectedOrder.createdAt || selectedOrder.date)}</p>
+                    <p className="text-xs sm:text-sm text-gray-600 mb-1">Date</p>
+                    <p className="text-base sm:text-lg font-semibold text-gray-900 break-words">{formatDateTime(selectedOrder.createdAt || selectedOrder.date)}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-gray-600 mb-1">Customer Name</p>
-                    <p className="text-lg font-semibold text-gray-900">{selectedOrder.customerName || 'Walk-in Customer'}</p>
+                    <p className="text-xs sm:text-sm text-gray-600 mb-1">Customer Name</p>
+                    <p className="text-base sm:text-lg font-semibold text-gray-900 break-words">{selectedOrder.customerName || 'Walk-in Customer'}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-gray-600 mb-1">Customer Mobile</p>
-                    <p className="text-lg font-semibold text-gray-900">{selectedOrder.customerMobile || '-'}</p>
+                    <p className="text-xs sm:text-sm text-gray-600 mb-1">Customer Mobile</p>
+                    <p className="text-base sm:text-lg font-semibold text-gray-900 break-words">{selectedOrder.customerMobile || '-'}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-gray-600 mb-1">Payment Method</p>
-                    <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${getPaymentMethodBadgeClass(selectedOrder.paymentMethod)}`}>
-                      {selectedOrder.paymentMethod || 'N/A'}
+                    <p className="text-xs sm:text-sm text-gray-600 mb-1">Payment Method</p>
+                    <span className={`inline-flex items-center px-2.5 sm:px-3 py-1 rounded-full text-xs sm:text-sm font-medium ${getPaymentMethodBadgeClass(selectedOrder.paymentMethod)}`}>
+                      {getPaymentMethodLabel(selectedOrder.paymentMethod, selectedOrder.splitPaymentDetails) || 'N/A'}
                     </span>
                   </div>
                   {(() => {
@@ -1061,19 +1131,19 @@ const SalesOrderHistory = () => {
                       
                       return (
                         <div className="sm:col-span-2">
-                          <p className="text-sm text-gray-600 mb-2">Split Payment Breakdown</p>
-                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                            <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                          <p className="text-xs sm:text-sm text-gray-600 mb-2">Split Payment Breakdown</p>
+                          <div className="grid grid-cols-3 gap-2 sm:gap-3">
+                            <div className="bg-green-50 border border-green-200 rounded-lg p-2.5 sm:p-3">
                               <p className="text-xs text-green-700 font-medium mb-1">Cash</p>
-                              <p className="text-lg font-bold text-green-900">{formatCurrency(cashAmount)}</p>
+                              <p className="text-base sm:text-lg font-bold text-green-900 break-words">{formatCurrency(cashAmount)}</p>
                             </div>
-                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-2.5 sm:p-3">
                               <p className="text-xs text-blue-700 font-medium mb-1">Online</p>
-                              <p className="text-lg font-bold text-blue-900">{formatCurrency(onlineAmount)}</p>
+                              <p className="text-base sm:text-lg font-bold text-blue-900 break-words">{formatCurrency(onlineAmount)}</p>
                             </div>
-                            <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                            <div className="bg-red-50 border border-red-200 rounded-lg p-2.5 sm:p-3">
                               <p className="text-xs text-red-700 font-medium mb-1">Due</p>
-                              <p className="text-lg font-bold text-red-900">{formatCurrency(dueAmount)}</p>
+                              <p className="text-base sm:text-lg font-bold text-red-900 break-words">{formatCurrency(dueAmount)}</p>
                             </div>
                           </div>
                         </div>
@@ -1082,15 +1152,16 @@ const SalesOrderHistory = () => {
                     return null;
                   })()}
                   <div className="sm:col-span-2">
-                    <p className="text-sm text-gray-600 mb-1">Total Amount</p>
-                    <p className="text-2xl font-bold text-gray-900">{formatCurrency(selectedOrder.totalAmount || selectedOrder.total)}</p>
+                    <p className="text-xs sm:text-sm text-gray-600 mb-1">Total Amount</p>
+                    <p className="text-xl sm:text-2xl font-bold text-gray-900 break-words">{formatCurrency(selectedOrder.totalAmount || selectedOrder.total)}</p>
                   </div>
                 </div>
 
                 {selectedOrder.items && selectedOrder.items.length > 0 && (
                   <div>
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Order Items</h3>
-                    <div className="overflow-x-auto">
+                    <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">Order Items</h3>
+                    {/* Desktop Table View */}
+                    <div className="hidden sm:block overflow-x-auto">
                       <table className="min-w-full divide-y divide-gray-200">
                         <thead className="bg-gray-50">
                           <tr>
@@ -1117,6 +1188,21 @@ const SalesOrderHistory = () => {
                           ))}
                         </tbody>
                       </table>
+                    </div>
+                    {/* Mobile Card View */}
+                    <div className="sm:hidden space-y-3">
+                      {selectedOrder.items.map((item, index) => (
+                        <div key={index} className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+                          <div className="flex items-start justify-between mb-2">
+                            <p className="text-sm font-semibold text-gray-900 flex-1 pr-2">{item.name || 'N/A'}</p>
+                            <p className="text-sm font-bold text-gray-900">{formatCurrency((item.sellingPrice || item.price || 0) * (item.quantity || 0))}</p>
+                          </div>
+                          <div className="flex items-center justify-between text-xs text-gray-600">
+                            <span>{item.quantity || 0} {item.unit || ''}</span>
+                            <span>@ {formatCurrency(item.sellingPrice || item.price)}</span>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}
