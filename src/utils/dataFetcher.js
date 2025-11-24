@@ -484,6 +484,12 @@ const isDuplicateInBatch = (storeName, itemToInsert, itemsToInsert) => {
  */
 const syncToIndexedDB = async (storeName, backendItems) => {
   try {
+    // Validate backend data before proceeding
+    if (!backendItems || !Array.isArray(backendItems)) {
+      console.warn(`⚠️ [syncToIndexedDB] Invalid backend data for ${storeName} - skipping sync`);
+      return;
+    }
+
     // Check if IndexedDB is available before attempting sync
     if (!(await isIndexedDBAvailable())) {
       console.warn(`⚠️ [syncToIndexedDB] IndexedDB unavailable - skipping sync for ${storeName}. Data will remain in memory only.`);
@@ -501,8 +507,14 @@ const syncToIndexedDB = async (storeName, backendItems) => {
     if (unsyncedItems.length > 0) {
       console.log(`⚠️ [syncToIndexedDB] Preserving ${unsyncedItems.length} unsynced local ${storeName} items`);
     }
-    
-    // Step 3: Clear all existing data from IndexedDB
+
+    // Step 3: Validate backend data before clearing IndexedDB
+    if (backendItems.length === 0 && existingItems.length > 0) {
+      console.log(`⚠️ [syncToIndexedDB] Backend returned empty data for ${storeName} but IndexedDB has ${existingItems.length} items - preserving IndexedDB data`);
+      return; // Don't clear IndexedDB if backend has no data but we have existing data
+    }
+
+    // Step 4: Clear all existing data from IndexedDB
     console.log(`🗑️ [syncToIndexedDB] Clearing all existing ${storeName} data from IndexedDB...`);
     await clearAllItems(storeName);
     console.log(`✅ [syncToIndexedDB] Cleared ${storeName} store`);
