@@ -605,19 +605,19 @@ const Staff = () => {
       {/* Header */}
       <div className="bg-gradient-to-r from-[#2f3c7e] to-[#18224f] text-white relative overflow-hidden">
         <div className="absolute inset-0 bg-black/10"></div>
-        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <div className="bg-white/20 backdrop-blur-sm p-3 rounded-xl shadow-lg">
-                <Users className="h-8 w-8" />
+        <div className="relative max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 xl:px-8 py-4 sm:py-6 lg:py-8">
+          <div className="flex flex-col space-y-3 lg:flex-row lg:items-center lg:justify-between lg:space-y-0">
+            <div className="flex items-center space-x-2 sm:space-x-3 lg:space-x-4 min-w-0 flex-1">
+              <div className="bg-white/20 backdrop-blur-sm p-2 sm:p-3 rounded-xl shadow-lg flex-shrink-0">
+                <Users className="h-5 w-5 sm:h-6 sm:w-6 lg:h-8 lg:w-8" />
               </div>
-              <div>
-                <h1 className="text-2xl md:text-3xl font-bold">Staff Management</h1>
-                <p className="text-indigo-100 mt-1">Manage your team members and their access permissions</p>
+              <div className="min-w-0 flex-1">
+                <h1 className="text-lg sm:text-xl lg:text-2xl xl:text-3xl font-bold truncate">Staff Management</h1>
+                <p className="text-indigo-100 mt-0.5 lg:mt-1 text-xs sm:text-sm lg:text-base hidden sm:block">Manage your team members and access permissions</p>
               </div>
             </div>
             {!isStaffUser && (
-              <div className="flex items-center space-x-3">
+              <div className="flex flex-col space-y-2 sm:flex-row sm:items-center sm:space-y-0 sm:space-x-2 lg:space-x-3 flex-shrink-0">
                 <button
                   onClick={() => {
                     console.log('🎯 Invite History button clicked');
@@ -625,20 +625,20 @@ const Staff = () => {
                     console.log('🔄 Modal state set to true');
                     loadInviteHistory();
                   }}
-                  className="bg-indigo-600 text-white px-6 py-3 rounded-xl font-semibold hover:bg-indigo-700 transition-colors duration-200 flex items-center space-x-2 shadow-lg"
+                  className="bg-indigo-600 text-white px-3 py-2 sm:px-4 lg:px-6 sm:py-3 rounded-xl font-semibold hover:bg-indigo-700 transition-colors duration-200 flex items-center justify-center space-x-1.5 sm:space-x-2 shadow-lg text-xs sm:text-sm lg:text-base whitespace-nowrap"
                 >
-                  <History className="h-5 w-5" />
-                  <span>Invite History</span>
+                  <History className="h-3.5 w-3.5 sm:h-4 sm:w-4 lg:h-5 lg:w-5 flex-shrink-0" />
+                  <span className="truncate">History</span>
                 </button>
                 <button
                   onClick={() => {
                     setInviteForm({ permissions: {} }); // Reset form for new invites
                     setShowInviteModal(true);
                   }}
-                  className="bg-white text-indigo-600 px-6 py-3 rounded-xl font-semibold hover:bg-indigo-50 transition-colors duration-200 flex items-center space-x-2 shadow-lg"
+                  className="bg-white text-indigo-600 px-3 py-2 sm:px-4 lg:px-6 sm:py-3 rounded-xl font-semibold hover:bg-indigo-50 transition-colors duration-200 flex items-center justify-center space-x-1.5 sm:space-x-2 shadow-lg text-xs sm:text-sm lg:text-base whitespace-nowrap"
                 >
-                  <UserPlus className="h-5 w-5" />
-                  <span>Invite Staff</span>
+                  <UserPlus className="h-3.5 w-3.5 sm:h-4 sm:w-4 lg:h-5 lg:w-5 flex-shrink-0" />
+                  <span className="truncate">Invite</span>
                 </button>
               </div>
             )}
@@ -648,93 +648,95 @@ const Staff = () => {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Quick Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          <div className="bg-white rounded-xl p-4 border border-gray-200">
+        <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:gap-4 mb-4 sm:mb-6 lg:mb-8 px-1">
+          <div className="bg-white rounded-lg sm:rounded-xl p-2.5 sm:p-3 lg:p-4 border border-gray-200 min-w-0">
             <div className="flex items-center justify-between">
-              <div>
-                <p className="text-gray-600 text-sm font-medium">Total Staff</p>
-                <p className="text-2xl font-bold text-gray-900">{staff.length}</p>
-                <p className="text-xs text-gray-500 mt-1">All time | Raw: {staff.length}</p>
+              <div className="flex-1 min-w-0">
+                <p className="text-gray-600 text-xs font-medium truncate">Total Staff</p>
+                <p className="text-lg sm:text-xl lg:text-2xl font-bold text-gray-900">{staff.length}</p>
               </div>
-              <div className="bg-blue-100 p-2 rounded-lg">
-                <Users className="h-5 w-5 text-blue-600" />
+              <div className="bg-blue-100 p-1.5 sm:p-2 rounded-lg ml-1 sm:ml-2 flex-shrink-0">
+                <Users className="h-3.5 w-3.5 sm:h-4 sm:w-4 lg:h-5 lg:w-5 text-blue-600" />
               </div>
             </div>
           </div>
-          <div className="bg-white rounded-xl p-4 border border-gray-200">
+          <div className="bg-white rounded-lg sm:rounded-xl p-2.5 sm:p-3 lg:p-4 border border-gray-200 min-w-0">
             <div className="flex items-center justify-between">
-              <div>
-                <p className="text-gray-600 text-sm font-medium">Active Staff</p>
-                <p className="text-2xl font-bold text-green-600">{staff.filter(s => s.isActive).length}</p>
-                <p className="text-xs text-gray-500 mt-1">Working | Raw: {staff.filter(s => s.isActive).length}</p>
+              <div className="flex-1 min-w-0">
+                <p className="text-gray-600 text-xs font-medium truncate">Active</p>
+                <p className="text-lg sm:text-xl lg:text-2xl font-bold text-green-600">{staff.filter(s => s.isActive).length}</p>
               </div>
-              <div className="bg-green-100 p-2 rounded-lg">
-                <UserCheck className="h-5 w-5 text-green-600" />
+              <div className="bg-green-100 p-1.5 sm:p-2 rounded-lg ml-1 sm:ml-2 flex-shrink-0">
+                <UserCheck className="h-3.5 w-3.5 sm:h-4 sm:w-4 lg:h-5 lg:w-5 text-green-600" />
               </div>
             </div>
           </div>
-          <div className="bg-white rounded-xl p-4 border border-gray-200">
+          <div className="bg-white rounded-lg sm:rounded-xl p-2.5 sm:p-3 lg:p-4 border border-gray-200 min-w-0">
             <div className="flex items-center justify-between">
-              <div>
-                <p className="text-gray-600 text-sm font-medium">Inactive Staff</p>
-                <p className="text-2xl font-bold text-red-600">{staff.filter(s => !s.isActive && !s.isSuspend).length}</p>
-                <p className="text-xs text-gray-500 mt-1">Inactive | Raw: {staff.filter(s => !s.isActive && !s.isSuspend).length}</p>
+              <div className="flex-1 min-w-0">
+                <p className="text-gray-600 text-xs font-medium truncate">Inactive</p>
+                <p className="text-lg sm:text-xl lg:text-2xl font-bold text-red-600">{staff.filter(s => !s.isActive && !s.isSuspend).length}</p>
               </div>
-              <div className="bg-red-100 p-2 rounded-lg">
-                <AlertCircle className="h-5 w-5 text-red-600" />
+              <div className="bg-red-100 p-1.5 sm:p-2 rounded-lg ml-1 sm:ml-2 flex-shrink-0">
+                <AlertCircle className="h-3.5 w-3.5 sm:h-4 sm:w-4 lg:h-5 lg:w-5 text-red-600" />
               </div>
             </div>
           </div>
-          <div className="bg-white rounded-xl p-4 border border-gray-200">
+          <div className="bg-white rounded-lg sm:rounded-xl p-2.5 sm:p-3 lg:p-4 border border-gray-200 min-w-0 col-span-2 lg:col-span-1">
             <div className="flex items-center justify-between">
-              <div>
-                <p className="text-gray-600 text-sm font-medium">Suspended Staff</p>
-                <p className="text-2xl font-bold text-orange-600">{staff.filter(s => s.isSuspend).length}</p>
-                <p className="text-xs text-gray-500 mt-1">Suspended | Raw: {staff.filter(s => s.isSuspend).length}</p>
+              <div className="flex-1 min-w-0">
+                <p className="text-gray-600 text-xs font-medium truncate">Suspended</p>
+                <p className="text-lg sm:text-xl lg:text-2xl font-bold text-orange-600">{staff.filter(s => s.isSuspend).length}</p>
               </div>
-              <div className="bg-orange-100 p-2 rounded-lg">
-                <Ban className="h-5 w-5 text-orange-600" />
+              <div className="bg-orange-100 p-1.5 sm:p-2 rounded-lg ml-1 sm:ml-2 flex-shrink-0">
+                <Ban className="h-3.5 w-3.5 sm:h-4 sm:w-4 lg:h-5 lg:w-5 text-orange-600" />
               </div>
             </div>
           </div>
-          <div className="bg-white rounded-xl p-4 border border-gray-200">
+          <div className="bg-white rounded-xl p-3 sm:p-4 border border-gray-200">
             <div className="flex items-center justify-between">
-              <div>
-                <p className="text-gray-600 text-sm font-medium">Pending</p>
-                <p className="text-2xl font-bold text-amber-600">{invites.length}</p>
+              <div className="flex-1 min-w-0">
+                <p className="text-gray-600 text-xs sm:text-sm font-medium">Pending</p>
+                <p className="text-xl sm:text-2xl font-bold text-amber-600">{invites.length}</p>
               </div>
-              <div className="bg-amber-100 p-2 rounded-lg">
-                <Mail className="h-5 w-5 text-amber-600" />
+              <div className="bg-amber-100 p-2 rounded-lg ml-2">
+                <Mail className="h-4 w-4 sm:h-5 sm:w-5 text-amber-600" />
               </div>
             </div>
           </div>
         </div>
 
         {/* Filters and Search */}
-        <div className="sticky top-4 z-10 bg-white/90 backdrop-blur-md rounded-2xl border border-white/20 shadow-xl ring-1 ring-gray-200/50 p-6 mb-8 transition-all duration-200 ease-in-out">
-          <div className="flex flex-col lg:flex-row gap-6 items-start lg:items-center justify-between">
-            <div className="flex flex-col sm:flex-row gap-4">
-              {/* Search Input */}
-              <div className="relative flex-1">
-                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                  <Search className="h-5 w-6 text-slate-400" />
-                </div>
-                <input
-                  type="text"
-                  placeholder="Search by name or email..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="block w-full min-w-[400px] pl-12 pr-4 py-3 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 focus:bg-white transition-all duration-200 ease-in-out text-sm font-medium"
-                />
+        <div className="sticky top-4 z-10 bg-white/90 backdrop-blur-md rounded-xl sm:rounded-2xl border border-white/20 shadow-xl ring-1 ring-gray-200/50 p-3 sm:p-4 lg:p-6 mb-4 sm:mb-6 lg:mb-8 transition-all duration-200 ease-in-out overflow-hidden">
+          <div className="flex flex-col space-y-3 lg:flex-row lg:gap-4 xl:gap-6 lg:items-center lg:justify-between lg:space-y-0">
+            {/* Search Input - Full width on mobile */}
+            <div className="relative flex-1 min-w-0">
+              <div className="absolute inset-y-0 left-0 pl-3 sm:pl-4 flex items-center pointer-events-none">
+                <Search className="h-4 w-4 sm:h-5 sm:w-5 text-slate-400" />
               </div>
+              <input
+                type="text"
+                placeholder="Search staff..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="block w-full pl-10 sm:pl-12 pr-10 sm:pr-4 py-2.5 sm:py-3 bg-slate-50/50 border border-slate-200 rounded-lg sm:rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 focus:bg-white transition-all duration-200 ease-in-out text-sm font-medium"
+              />
+              {searchTerm && (
+                <button
+                  onClick={() => setSearchTerm('')}
+                  className="absolute inset-y-0 right-0 pr-3 flex items-center"
+                >
+                  <X className="h-4 w-4 text-slate-400 hover:text-slate-600" />
+                </button>
+              )}
             </div>
 
-            <div className="flex items-center gap-3">
-              {/* Dashboard-Style Status Filters */}
-              <div className="inline-flex items-center rounded-full border border-slate-200 bg-white/80 p-1 shadow-sm">
+            {/* Status Filters - Scrollable on mobile */}
+            <div className="flex-shrink-0">
+              <div className="flex gap-1 overflow-x-auto pb-1 sm:pb-0 sm:gap-0 sm:inline-flex sm:items-center sm:rounded-full sm:border sm:border-slate-200 sm:bg-white/80 sm:p-1 sm:shadow-sm scrollbar-hide">
                 <button
                   onClick={() => setStatusFilter('all')}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-full transition sm:text-sm ${
+                  className={`px-2 py-1.5 sm:px-3 text-xs font-medium rounded-full transition-all duration-200 whitespace-nowrap flex-shrink-0 sm:text-sm ${
                     statusFilter === 'all'
                       ? 'bg-gradient-to-r from-[#2f3c7e] to-[#18224f] text-white shadow'
                       : 'text-slate-600 hover:text-[#2f3c7e] hover:bg-white'
@@ -744,7 +746,7 @@ const Staff = () => {
                 </button>
                 <button
                   onClick={() => setStatusFilter('active')}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-full transition sm:text-sm ${
+                  className={`px-2 py-1.5 sm:px-3 text-xs font-medium rounded-full transition-all duration-200 whitespace-nowrap flex-shrink-0 sm:text-sm ${
                     statusFilter === 'active'
                       ? 'bg-gradient-to-r from-[#2f3c7e] to-[#18224f] text-white shadow'
                       : 'text-slate-600 hover:text-[#2f3c7e] hover:bg-white'
@@ -754,7 +756,7 @@ const Staff = () => {
                 </button>
                 <button
                   onClick={() => setStatusFilter('resigned')}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-full transition sm:text-sm ${
+                  className={`px-2 py-1.5 sm:px-3 text-xs font-medium rounded-full transition-all duration-200 whitespace-nowrap flex-shrink-0 sm:text-sm ${
                     statusFilter === 'resigned'
                       ? 'bg-gradient-to-r from-[#2f3c7e] to-[#18224f] text-white shadow'
                       : 'text-slate-600 hover:text-[#2f3c7e] hover:bg-white'
@@ -764,7 +766,7 @@ const Staff = () => {
                 </button>
                 <button
                   onClick={() => setStatusFilter('suspended')}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-full transition sm:text-sm ${
+                  className={`px-2 py-1.5 sm:px-3 text-xs font-medium rounded-full transition-all duration-200 whitespace-nowrap flex-shrink-0 sm:text-sm ${
                     statusFilter === 'suspended'
                       ? 'bg-gradient-to-r from-[#2f3c7e] to-[#18224f] text-white shadow'
                       : 'text-slate-600 hover:text-[#2f3c7e] hover:bg-white'
@@ -773,36 +775,26 @@ const Staff = () => {
                   Suspended ({staff.filter(s => s.isSuspend).length})
                 </button>
               </div>
-
-              {searchTerm && (
-                <button
-                  onClick={() => setSearchTerm('')}
-                  className="px-3 py-1.5 rounded-full font-medium text-xs bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors border border-slate-200 hover:border-slate-300 flex items-center gap-1.5"
-                >
-                  <X className="h-3 w-3" />
-                  <span>Clear search</span>
-                </button>
-              )}
             </div>
           </div>
         </div>
 
         {/* Pending Invites Section */}
         {invites.length > 0 && (
-          <div className="bg-white/80 backdrop-blur-sm rounded-2xl border border-white/20 shadow-lg ring-1 ring-gray-200/50 p-6 mb-8">
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center gap-4">
-                <div className="bg-gradient-to-r from-amber-500 to-orange-500 p-3 rounded-xl shadow-lg">
-                  <Mail className="h-6 w-6 text-white" />
+          <div className="bg-white/80 backdrop-blur-sm rounded-2xl border border-white/20 shadow-lg ring-1 ring-gray-200/50 p-4 sm:p-6 mb-6 sm:mb-8">
+            <div className="flex flex-col space-y-4 sm:flex-row sm:items-center sm:justify-between sm:space-y-0 mb-4 sm:mb-6">
+              <div className="flex items-center gap-3 sm:gap-4">
+                <div className="bg-gradient-to-r from-amber-500 to-orange-500 p-2 sm:p-3 rounded-xl shadow-lg">
+                  <Mail className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
                 </div>
                 <div>
-                  <h3 className="text-xl font-bold text-slate-900 bg-gradient-to-r from-slate-900 to-slate-700 bg-clip-text text-transparent">Pending Invites</h3>
-                  <p className="text-slate-600 text-sm mt-1">Invitations sent but not yet accepted</p>
+                  <h3 className="text-lg sm:text-xl font-bold text-slate-900 bg-gradient-to-r from-slate-900 to-slate-700 bg-clip-text text-transparent">Pending Invites</h3>
+                  <p className="text-slate-600 text-xs sm:text-sm mt-1">Invitations sent but not yet accepted</p>
                 </div>
               </div>
-              <div className="flex items-center gap-3 text-sm text-amber-600 bg-gradient-to-r from-amber-50 to-orange-50 px-4 py-2 rounded-xl border border-amber-100">
+              <div className="flex items-center gap-2 sm:gap-3 text-xs sm:text-sm text-amber-600 bg-gradient-to-r from-amber-50 to-orange-50 px-3 sm:px-4 py-2 rounded-xl border border-amber-100 self-start sm:self-auto">
                 <div className="w-2 h-2 bg-amber-500 rounded-full animate-pulse"></div>
-                <span className="font-semibold">{invites.length} pending invites</span>
+                <span className="font-semibold">{invites.length} pending</span>
               </div>
             </div>
 
@@ -1175,18 +1167,18 @@ const Staff = () => {
         {isStaffUser && (
           <div className="space-y-8">
             {/* Staff Permissions View */}
-            <div className="bg-white rounded-xl border border-gray-200 p-6">
-              <div className="flex items-center space-x-3 mb-6">
+            <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
+              <div className="flex items-center space-x-3 mb-4 sm:mb-6">
                 <div className="bg-indigo-100 rounded-full p-2">
-                  <Shield className="h-6 w-6 text-indigo-600" />
+                  <Shield className="h-5 w-5 sm:h-6 sm:w-6 text-indigo-600" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-semibold text-gray-900">Your Permissions</h3>
-                  <p className="text-gray-600 text-sm">Current access permissions granted by your seller</p>
+                  <h3 className="text-base sm:text-lg font-semibold text-gray-900">Your Permissions</h3>
+                  <p className="text-gray-600 text-xs sm:text-sm">Current access permissions granted by your seller</p>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
                 {state.currentUser?.permissions && Object.entries(state.currentUser.permissions).map(([key, value]) => (
                   <div
                     key={key}
