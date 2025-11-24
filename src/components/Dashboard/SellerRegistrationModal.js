@@ -1,8 +1,9 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useApp, ActionTypes } from '../../context/AppContext';
 import { updateSellerProfile } from '../../utils/api';
 import { sanitizeMobileNumber, isValidMobileNumber, sanitizeGSTNumber, isValidGSTNumber } from '../../utils/validation';
-import { X } from 'lucide-react';
+import { X, LogOut } from 'lucide-react';
 
 const businessTypes = [
   'Retail',
@@ -22,6 +23,7 @@ const genders = [
 
 const SellerRegistrationModal = ({ isOpen, onClose }) => {
   const { state, dispatch } = useApp();
+  const navigate = useNavigate();
   const currentUser = state.currentUser || {};
   const canClose = currentUser?.profileCompleted === true;
 
@@ -117,6 +119,55 @@ const SellerRegistrationModal = ({ isOpen, onClose }) => {
 
     setErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
+  };
+
+  const handleLogout = async () => {
+    try {
+      // Clear all authentication data from localStorage
+      console.log('🗑️ Clearing authentication data from localStorage');
+      localStorage.removeItem('auth');
+
+      // Clear user-specific data caches if userId is available
+      const userId = state.currentUser?.email || state.currentUser?.uid || state.currentUser?._id;
+      if (userId) {
+        localStorage.removeItem(`customers_${userId}`);
+        localStorage.removeItem(`products_${userId}`);
+        localStorage.removeItem(`transactions_${userId}`);
+        localStorage.removeItem(`purchaseOrders_${userId}`);
+        localStorage.removeItem(`activities_${userId}`);
+        localStorage.removeItem(`settings_${userId}`);
+      }
+
+      // Clear sync metadata
+      const syncKeys = Object.keys(localStorage).filter(key => key.startsWith('sync_'));
+      syncKeys.forEach(key => localStorage.removeItem(key));
+
+      // Clear Firebase auth persistence data
+      const firebaseKeys = Object.keys(localStorage).filter(key =>
+        key.startsWith('firebase:') ||
+        key.startsWith('firebaseLocalStorage') ||
+        key.includes('firebase-auth')
+      );
+      firebaseKeys.forEach(key => localStorage.removeItem(key));
+
+      console.log('✅ All authentication data cleared from localStorage');
+
+      // Dispatch logout action
+      dispatch({ type: ActionTypes.LOGOUT });
+
+      // Close modal and navigate to login
+      onClose();
+      navigate('/login');
+
+      if (window.showToast) {
+        window.showToast('Logged out successfully. Please log in again.', 'info');
+      }
+    } catch (error) {
+      console.error('❌ Error during logout:', error);
+      if (window.showToast) {
+        window.showToast('Error logging out. Please try again.', 'error');
+      }
+    }
   };
 
   const handleSubmit = async (event) => {
@@ -231,7 +282,7 @@ const SellerRegistrationModal = ({ isOpen, onClose }) => {
           </button>
         )}
 
-        <div className="mb-6">
+        <div className="mb-6 relative">
           <p className="text-sm font-semibold text-sky-600 uppercase tracking-[0.3em]">
             Complete Your Profile
           </p>
@@ -241,6 +292,17 @@ const SellerRegistrationModal = ({ isOpen, onClose }) => {
           <p className="mt-2 text-sm text-slate-500">
             We need a few business details to unlock all features.
           </p>
+
+          {/* Logout button positioned at top right */}
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="absolute top-0 right-0 flex items-center gap-2 rounded-lg bg-gray-100 py-2 px-3 text-sm font-medium text-gray-700 shadow-sm transition hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-300"
+            title="Start over and log out"
+          >
+            <LogOut className="h-4 w-4" />
+            <span>Back</span>
+          </button>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
@@ -401,11 +463,11 @@ const SellerRegistrationModal = ({ isOpen, onClose }) => {
             </div>
           </div>
 
-          <div className="flex gap-3 pt-4">
+          <div className="flex pt-4">
             <button
               type="submit"
               disabled={isSubmitting}
-              className="flex-1 rounded-xl bg-sky-600 py-3.5 text-sm font-semibold text-white shadow-lg shadow-sky-500/30 transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
+              className="w-full rounded-xl bg-sky-600 py-3.5 text-sm font-semibold text-white shadow-lg shadow-sky-500/30 transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isSubmitting ? 'Saving...' : 'Save & Continue'}
             </button>
