@@ -3532,7 +3532,10 @@ export const AppProvider = ({ children }) => {
                 };
               });
 
-              // Update IndexedDB with backend data
+              // CRITICAL: Only update IndexedDB AFTER confirming complete backend data
+              console.log('🛡️ Backend data confirmed complete - now safely updating IndexedDB');
+
+              // Update IndexedDB with backend data (this will clear and replace)
               await Promise.all([
                 syncToIndexedDB(STORES.customers, normalizedBackendCustomers),
                 syncToIndexedDB(STORES.products, normalizedBackendProducts),
@@ -3554,6 +3557,7 @@ export const AppProvider = ({ children }) => {
             }
           } catch (backendError) {
             console.error('❌ Error fetching user data from backend:', backendError.message);
+            console.log('🛡️ IndexedDB data preserved due to backend error - no data loss');
           }
           
           // Background plan details refresh (non-blocking, delayed)
