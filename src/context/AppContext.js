@@ -3576,7 +3576,18 @@ export const AppProvider = ({ children }) => {
     return () => {
       window.removeEventListener('pageshow', handlePageShow);
     };
-  }, []); // Empty dependency array - only run once on mount
+  }, [state.isAuthenticated]); // Add isAuthenticated as dependency
+
+  // Also trigger data load when user becomes authenticated
+  useEffect(() => {
+    if (state.isAuthenticated && state.currentUser) {
+      console.log('🔄 AppContext: User authentication detected - triggering initial data load');
+      // Small delay to ensure authentication is fully processed
+      setTimeout(() => {
+        loadData();
+      }, 500);
+    }
+  }, [state.isAuthenticated, state.currentUser]); // Trigger when authentication state changes
 
   // Track loadData calls
   let loadDataCallCount = 0;
