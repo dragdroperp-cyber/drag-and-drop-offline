@@ -99,6 +99,28 @@ export const apiRequest = async (endpoint, options = {}) => {
     }
 
     if (!response.ok) {
+      // Check for plan validation errors (redirect to upgrade page)
+      if (response.status === 403 && data.planInvalid) {
+        console.log('🚫 Plan validation failed - redirecting to upgrade page');
+
+        // Show toast message about plan expiry
+        if (window.showToast) {
+          window.showToast(data.message || 'Your plan has expired. Please renew your plan to continue.', 'warning');
+        }
+
+        // Redirect to upgrade page after a short delay
+        setTimeout(() => {
+          window.location.href = '/upgrade';
+        }, 1500);
+
+        return {
+          success: false,
+          error: data.message || 'Plan expired - redirecting to upgrade page',
+          planInvalid: true,
+          planStatus: data.planStatus
+        };
+      }
+
       // Check for seller not found errors (automatic logout and data cleanup)
       if (response.status === 403 || response.status === 404) {
         const errorMessage = data.message || '';
