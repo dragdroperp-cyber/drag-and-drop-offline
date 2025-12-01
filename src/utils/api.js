@@ -101,7 +101,23 @@ export const apiRequest = async (endpoint, options = {}) => {
     if (!response.ok) {
       // Check for plan validation errors (redirect to upgrade page)
       if (response.status === 403 && data.planInvalid) {
-        console.log('🚫 Plan validation failed - redirecting to upgrade page');
+        console.log('🚫 Plan validation failed - checking if redirect is needed');
+
+        // Don't redirect if already on upgrade page to prevent infinite loop
+        const currentPath = window.location.pathname;
+        const isAlreadyOnUpgradePage = currentPath === '/upgrade';
+
+        if (isAlreadyOnUpgradePage) {
+          console.log('✅ Already on upgrade page - no redirect needed');
+          return {
+            success: false,
+            error: data.message || 'Plan expired - please upgrade to continue',
+            planInvalid: true,
+            planStatus: data.planStatus
+          };
+        }
+
+        console.log('🔄 Plan validation failed - redirecting to upgrade page');
 
         // Show toast message about plan expiry
         if (window.showToast) {
