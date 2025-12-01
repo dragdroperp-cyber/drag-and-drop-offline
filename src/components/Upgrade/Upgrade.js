@@ -105,6 +105,13 @@ const Upgrade = () => {
       // Add cache-busting parameter to ensure fresh data after plan upgrade
       const result = await apiRequest(`/data/plans?_t=${Date.now()}`);
 
+      // Handle plan validation errors gracefully on upgrade page
+      if (result.planInvalid) {
+        console.log('📋 Plan invalid on upgrade page - showing plans anyway');
+        setError('Your plan has expired. Please select a plan below to continue.');
+        return;
+      }
+
       if (result.success && result.data) {
         // Handle the response structure: backend returns { success: true, data: [...] }
         // apiRequest wraps it: { success: true, data: { success: true, data: [...] } }
@@ -346,6 +353,12 @@ const Upgrade = () => {
         apiRequest(`/data/current-plan?_t=${Date.now()}`),
         apiRequest('/plans/usage')
       ]);
+
+      // Handle plan validation errors gracefully on upgrade page
+      if (planResult.planInvalid || usageResult.planInvalid) {
+        console.log('📋 Plan invalid during refresh on upgrade page - continuing without plan details');
+        return;
+      }
 
       const planPayload = planResult.success && planResult.data
         ? (Array.isArray(planResult.data) ? planResult.data : planResult.data.data || planResult.data)
