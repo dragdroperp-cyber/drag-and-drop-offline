@@ -71,20 +71,19 @@ const Sidebar = ({ onClose }) => {
   ];
 
   const handleNavigation = (view) => {
+    // When plan is expired, only allow upgrade and settings
+    if (planExpired && view !== 'upgrade' && view !== 'settings') {
+      if (window.showToast) window.showToast(planExpiredMessage, 'warning');
+      return;
+    }
 
-    // Check for plan expiry
-      if (planExpired && view !== 'upgrade') {
-        if (window.showToast) window.showToast(planExpiredMessage, 'warning');
-        return;
+    // Check plan unlocks for non-basic views (only when plan is not expired)
+    if (!planExpired && view !== 'dashboard' && view !== 'settings' && !isModuleUnlocked(view, state.currentPlan, state.currentPlanDetails)) {
+      const message = getUpgradeMessage(view, state.currentPlan);
+      if (window.showToast) {
+        window.showToast(message, 'warning');
       }
-
-    // Check plan unlocks for non-basic views
-      if (view !== 'dashboard' && view !== 'settings' && !isModuleUnlocked(view, state.currentPlan, state.currentPlanDetails)) {
-        const message = getUpgradeMessage(view, state.currentPlan);
-        if (window.showToast) {
-          window.showToast(message, 'warning');
-        }
-        return;
+      return;
     }
 
     const path = getPathForView(view);
@@ -152,11 +151,12 @@ const Sidebar = ({ onClose }) => {
             const isActive = state.currentView === item.href;
             const isUpgradePage = item.href === 'upgrade';
 
-            // Use plan-based logic for all users
-              const baseUnlocked = item.href === 'dashboard'
+            // When plan is expired, only upgrade and settings are unlocked
+            const isUnlocked = planExpired
+              ? (isUpgradePage || item.href === 'settings')
+              : (item.href === 'dashboard'
                 ? true
-                : isModuleUnlocked(item.href, state.currentPlan, state.currentPlanDetails);
-            const isUnlocked = planExpired ? isUpgradePage : baseUnlocked;
+                : isModuleUnlocked(item.href, state.currentPlan, state.currentPlanDetails));
 
             const buttonTitle = !isUnlocked
               ? planExpired && !isUpgradePage
