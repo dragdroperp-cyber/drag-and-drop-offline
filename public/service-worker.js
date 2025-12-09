@@ -1,6 +1,6 @@
 // Service Worker for Grocery ERP PWA - Enhanced Offline Support
 // IMPORTANT: Update CACHE_VERSION whenever you deploy new code to force cache refresh
-const CACHE_VERSION = 'v1.0.7';
+const CACHE_VERSION = 'v1.0.8';
 const CACHE_NAME = `grocery-erp-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `grocery-erp-runtime-${CACHE_VERSION}`;
 const OFFLINE_CACHE = `grocery-erp-offline-${CACHE_VERSION}`;
@@ -72,8 +72,8 @@ self.addEventListener('install', (event) => {
     })()
   );
 
-  // Force activation immediately
-  self.skipWaiting();
+// Removed self.skipWaiting() to allow user-controlled updates
+// New service workers will wait for user approval before activating
 });
 
 // Activate event - clean up old caches and take control
