@@ -139,7 +139,7 @@ const Sidebar = ({ onClose }) => {
     if (onClose) onClose();
   };
 
-  const logoSrc = `${process.env.PUBLIC_URL || ''}/assets/drag-and-drop-logo.jpg`;
+  const logoSrc = `${process.env.PUBLIC_URL || ''}/assets/drag-and-drop-logo-croped.jpg`;
 
   // Preload critical images on component mount
   React.useEffect(() => {
@@ -194,12 +194,17 @@ const Sidebar = ({ onClose }) => {
     <div className="dark-sidebar flex h-full flex-col" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <div className="flex items-center justify-between px-5 py-5 flex-shrink-0 border-b border-slate-200/50">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/40 bg-white shadow-lg">
-            <img src={logoSrc} alt="Drag & Drop" className="h-8 w-8 object-contain" />
+        <div className="mx-auto flex h-10 w-12 items-center justify-center rounded-2xl bg-transparent overflow-hidden">
+                <img
+                  src={logoSrc}
+                  alt="Drag & Drop"
+                  className="h-9 w-12 object-cover"
+                  onError={(e) => { e.currentTarget.src = `${process.env.PUBLIC_URL || ''}/assets/drag-drop-logo.png`; }}
+                />
           </div>
           <div className="min-w-0">
             <p className="text-[10px] font-semibold uppercase tracking-[0.35em] text-slate-500">Drag &amp; Drop</p>
-            <h1 className="truncate text-lg font-semibold text-slate-800">Business OS</h1>
+            <h1 className="truncate text-lg font-semibold text-slate-800">Grocery Studio</h1>
           </div>
         </div>
         {onClose && (
