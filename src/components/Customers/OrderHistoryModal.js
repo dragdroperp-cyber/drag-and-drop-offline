@@ -1,0 +1,558 @@
+import React, { useMemo, useState, useCallback } from 'react';
+import { X, Receipt, ShoppingCart, Share2, Filter } from 'lucide-react';
+import { sanitizeMobileNumber } from '../../utils/validation';
+import { useApp } from '../../context/AppContext';
+
+const formatCurrency = (value) => {
+  const amount = Number(value || 0) || 0;
+  return `₹${amount.toFixed(2)}`;
+};
+
+const formatDateTime = (value) => {
+  try {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    const options = {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    };
+    return new Intl.DateTimeFormat('en-IN', options).format(date);
+  } catch (error) {
+    return value;
+  }
+};
+
+const OrderHistoryModal = ({ customer, orders, onClose }) => {
+  const { state } = useApp();
+  const [filterType, setFilterType] = useState('all');
+  const [filterDate, setFilterDate] = useState(() => {
+    const today = new Date();
+    return today.toISOString().split('T')[0];
+  });
+  const customerOrders = useMemo(() => {
+    if (!customer || !orders?.length) return [];
+
+    // Filter orders by customer mobile number only
+    const customerMobile = sanitizeMobileNumber(customer.mobileNumber || customer.phone || '');
+
+    // If customer has no mobile number, return empty array
+    if (!customerMobile) {
+      return [];
+    }
+
+    return orders
+      .filter((order) => {
+        if (!order || order.isDeleted) return false;
+
+        // Match by mobile number only
+        const orderCustomerMobile = sanitizeMobileNumber(order.customerMobile || '');
+
+        if (orderCustomerMobile && customerMobile && orderCustomerMobile === customerMobile) {
+          return true;
+        }
+
+        return false;
+      })
+      .sort((a, b) => new Date(b.createdAt || b.date || 0) - new Date(a.createdAt || a.date || 0));
+  }, [customer, orders]);
+
+  const toNumeric = (value) => {
+    const num = Number(value);
+    return Number.isFinite(num) ? num : null;
+  };
+
+  const deriveSubtotalFromItems = (order) => {
+    if (!order || !Array.isArray(order.items)) return 0;
+    return order.items.reduce((sum, item) => {
+      const price = toNumeric(item.sellingPrice) ?? toNumeric(item.price) ?? 0;
+      const qty = toNumeric(item.quantity) ?? 0;
+      return sum + price * qty;
+    }, 0);
+  };
+
+  const roundAmount = (value) => {
+    const numeric = Number(value) || 0;
+    return Math.round((numeric + Number.EPSILON) * 100) / 100;
+  };
+
+  const computeFinancialBreakdown = (order) => {
+    const storedSubtotal = toNumeric(order.subtotal) ?? 0;
+    const itemsSubtotal = deriveSubtotalFromItems(order);
+    const fallbackTotal = toNumeric(order.totalAmount) ?? toNumeric(order.total) ?? 0;
+    const rawSubtotal = storedSubtotal > 0 ? storedSubtotal : (itemsSubtotal > 0 ? itemsSubtotal : fallbackTotal);
+
+    const storedDiscountPercentValue = toNumeric(order.discountPercent);
+    const storedDiscountAmount = toNumeric(order.discountAmount) ?? toNumeric(order.discount) ?? 0;
+
+    let discountPercent = storedDiscountPercentValue;
+    if (discountPercent === null) {
+      discountPercent = rawSubtotal > 0 ? (storedDiscountAmount / rawSubtotal) * 100 : 0;
+    }
+    if (!Number.isFinite(discountPercent)) {
+      discountPercent = 0;
+    }
+
+    const resolvedDiscountAmount = storedDiscountAmount > 0
+      ? storedDiscountAmount
+      : (rawSubtotal * discountPercent) / 100;
+    const discountAmount = roundAmount(resolvedDiscountAmount);
+
+    const taxableBase = Math.max(0, rawSubtotal - discountAmount);
+
+    const storedTaxPercentValue = toNumeric(order.taxPercent);
+    const storedTaxAmount = toNumeric(order.taxAmount) ?? toNumeric(order.tax) ?? 0;
+
+    let taxPercent = storedTaxPercentValue;
+    if (taxPercent === null) {
+      taxPercent = taxableBase > 0 ? (storedTaxAmount / taxableBase) * 100 : 0;
+    }
+    if (!Number.isFinite(taxPercent)) {
+      taxPercent = 0;
+    }
+
+    const resolvedTaxAmount = storedTaxAmount > 0
+      ? storedTaxAmount
+      : (taxableBase * taxPercent) / 100;
+    const taxAmount = roundAmount(resolvedTaxAmount);
+
+    const rawTotal = toNumeric(order.totalAmount) ?? toNumeric(order.total) ?? 0;
+    const netTotal = rawTotal > 0 ? rawTotal : roundAmount(Math.max(0, taxableBase + taxAmount));
+
+    return {
+      subtotal: roundAmount(rawSubtotal),
+      discountPercent: roundAmount(discountPercent),
+      discountAmount,
+      taxPercent: roundAmount(taxPercent),
+      taxAmount,
+      netTotal
+    };
+  };
+
+  const toLocalDateKey = useCallback((raw) => {
+    if (!raw) return null;
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) return null;
+    const year = parsed.getFullYear();
+    const month = String(parsed.getMonth() + 1).padStart(2, '0');
+    const day = String(parsed.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }, []);
+
+  const extractOrderDate = useCallback((order) => {
+    if (!order) return null;
+    const raw = order.date || order.createdAt || order.updatedAt || order.invoiceDate;
+    return toLocalDateKey(raw);
+  }, [toLocalDateKey]);
+
+  const filteredOrders = useMemo(() => {
+    if (filterType === 'all') return customerOrders;
+
+    const todayIso = toLocalDateKey(Date.now());
+
+    if (filterType === 'today') {
+      return customerOrders.filter((order) => extractOrderDate(order) === todayIso);
+    }
+
+    if (filterType === 'date' && filterDate) {
+      return customerOrders.filter((order) => extractOrderDate(order) === filterDate);
+    }
+
+    return customerOrders;
+  }, [customerOrders, extractOrderDate, filterType, filterDate, toLocalDateKey]);
+
+  const totals = filteredOrders.reduce((acc, order) => {
+    const breakdown = computeFinancialBreakdown(order);
+    acc.totalSpend += breakdown.netTotal;
+    acc.totalSubtotal += breakdown.subtotal;
+    acc.totalDiscount += breakdown.discountAmount;
+    acc.totalTax += breakdown.taxAmount;
+    return acc;
+  }, { totalSpend: 0, totalSubtotal: 0, totalDiscount: 0, totalTax: 0 });
+
+  const { totalSpend, totalSubtotal, totalDiscount, totalTax } = totals;
+
+  const showToast = useCallback((message, type = 'info', duration = 4000) => {
+    if (typeof window !== 'undefined' && typeof window.showToast === 'function') {
+      window.showToast(message, type, duration);
+    }
+  }, []);
+
+  const buildWhatsAppMessage = useCallback((order) => {
+    if (!order) return '';
+    const breakdown = computeFinancialBreakdown(order);
+    const orderDate = formatDateTime(order.createdAt || order.date || new Date().toISOString());
+    const invoiceDate = (() => {
+      try {
+        const date = new Date(order.createdAt || order.date || Date.now());
+        if (Number.isNaN(date.getTime())) return orderDate;
+        return date.toLocaleDateString('en-IN');
+      } catch {
+        return orderDate;
+      }
+    })();
+
+    const withNull = (value) => {
+      if (value === null || value === undefined || value === '') {
+        return 'null';
+      }
+      return value;
+    };
+
+    const storeName = withNull(state.storeName || state.currentUser?.shopName || state.currentUser?.username);
+    const storeAddress = withNull(state.currentUser?.address || state.shopAddress);
+    const storePhoneRaw = state.currentUser?.phoneNumber || state.currentUser?.mobile || state.currentUser?.mobileNumber || state.currentUser?.contact || '';
+    const storePhoneSanitized = sanitizeMobileNumber(storePhoneRaw);
+    const storePhoneDisplay = storePhoneSanitized
+      ? `+91 ${storePhoneSanitized}`
+      : withNull(storePhoneRaw);
+    const customerName = withNull(customer?.name || order.customerName);
+    const customerPhoneSanitized = sanitizeMobileNumber(customer?.mobileNumber || customer?.phone || order.customerMobile || '');
+    const customerPhoneDisplay = customerPhoneSanitized || 'null';
+
+    const quantityWidth = 8;
+    const rateWidth = 8;
+    const amountWidth = 10;
+    const headerLine = `${'Item'.padEnd(12, ' ')}${'Qty'.padStart(quantityWidth, ' ')}   ${'Rate'.padStart(rateWidth, ' ')}   ${'Amount'.padStart(amountWidth, ' ')}`;
+
+    const items = (order.items || []).map((item) => {
+      const qty = Number(item.quantity ?? 0) || 0;
+      const rate = Number(item.sellingPrice ?? item.price ?? 0) || 0;
+      const total = qty * rate;
+      const qtyDisplay = Number.isInteger(qty) ? qty.toString() : qty.toFixed(2);
+      const rateDisplay = rate.toFixed(2);
+      const totalDisplay = total.toFixed(2);
+      const name = (item.name || 'null').slice(0, 12).padEnd(12, ' ');
+      const qtyCol = qtyDisplay.padStart(quantityWidth, ' ');
+      const rateCol = rateDisplay.padStart(rateWidth, ' ');
+      const totalCol = totalDisplay.padStart(amountWidth, ' ');
+      return `${name}${qtyCol}   ${rateCol}   ${totalCol}`;
+    }).join('\n');
+
+    const divider = '--------------------------------';
+    const headerTitle = '             INVOICE';
+    const storeLine = `Shop Name : ${storeName}`;
+    const addressLine = `Address   : ${storeAddress}`;
+    const phoneLine = `Phone     : ${storePhoneDisplay}`;
+    const dateLine = `Date      : ${withNull(invoiceDate)}`;
+    const paymentMode = (order.paymentMethod || 'null').toString().trim();
+    const formattedPaymentMode = paymentMode.toLowerCase() === 'null'
+      ? 'null'
+      : paymentMode.charAt(0).toUpperCase() + paymentMode.slice(1).toLowerCase();
+    const discountAmount = Number.isFinite(breakdown.discountAmount)
+      ? `₹${breakdown.discountAmount.toFixed(2)}`
+      : '₹null';
+    const subtotalAmount = Number.isFinite(breakdown.subtotal)
+      ? `₹${breakdown.subtotal.toFixed(2)}`
+      : '₹null';
+    const netTotalAmount = Number.isFinite(breakdown.netTotal)
+      ? `₹${breakdown.netTotal.toFixed(2)}`
+      : '₹null';
+    const taxPercentRaw = Number.isFinite(breakdown.taxPercent) ? breakdown.taxPercent : null;
+    const taxPercentDisplay = taxPercentRaw === null
+      ? 'null'
+      : `${(taxPercentRaw % 1 === 0 ? taxPercentRaw.toFixed(0) : taxPercentRaw.toFixed(2))}%`;
+    const taxAmountDisplay = Number.isFinite(breakdown.taxAmount)
+      ? `₹${breakdown.taxAmount.toFixed(2)}`
+      : '₹null';
+
+    const lines = [
+      headerTitle,
+      '',
+      divider,
+      storeLine,
+      addressLine,
+      phoneLine,
+      dateLine,
+      divider,
+      `Customer Name : ${customerName}`,
+      `Customer Phone: ${customerPhoneDisplay}`,
+      divider,
+      headerLine,
+      items || `${'null'.padEnd(12, ' ')}${'null'.padStart(quantityWidth, ' ')}   ${'null'.padStart(rateWidth, ' ')}   ${'null'.padStart(amountWidth, ' ')}`,
+      divider,
+      `Subtotal     : ${subtotalAmount}`,
+      `Discount     : ${discountAmount}`,
+      `Tax (${taxPercentDisplay})     : ${taxAmountDisplay}`,
+      divider,
+      `Grand Total  : ${netTotalAmount}`,
+      `Payment Mode : ${formattedPaymentMode}`,
+      'Thank you for shopping with us!',
+      divider,
+      '        Powered by Drag & Drop',
+      divider
+    ];
+
+    return lines.join('\n');
+  }, [customer?.name, customer?.mobileNumber, customer?.phone, state]);
+
+  const handleShareOrder = useCallback((order) => {
+    const message = buildWhatsAppMessage(order);
+    if (!message) {
+      showToast('Unable to prepare invoice details for sharing.', 'error');
+      return;
+    }
+
+    const customerMobileRaw = customer?.mobileNumber || customer?.phone || order?.customerMobile || '';
+    const sanitizedMobile = sanitizeMobileNumber(customerMobileRaw);
+
+    if (!sanitizedMobile) {
+      showToast('No valid customer mobile number found to share the bill.', 'warning');
+      return;
+    }
+
+    const encodedMessage = encodeURIComponent(message);
+    const targetNumber = sanitizedMobile.length === 10 ? `91${sanitizedMobile}` : sanitizedMobile;
+    const waUrl = `https://wa.me/${targetNumber}?text=${encodedMessage}`;
+    window.open(waUrl, '_blank');
+  }, [buildWhatsAppMessage, customer, showToast]);
+
+  return (
+    <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-[1050] p-0 sm:p-4">
+      <div className="bg-white rounded-none sm:rounded-2xl shadow-2xl w-full h-full sm:h-auto sm:max-w-3xl sm:max-h-[90vh] flex flex-col overflow-hidden">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 border-b border-gray-200 px-4 sm:px-6 py-4 flex-shrink-0">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-lg sm:text-xl font-semibold text-gray-900 flex items-center gap-2">
+                <Receipt className="h-5 w-5 text-primary-600 flex-shrink-0" />
+                Order History
+              </h2>
+              <button
+                type="button"
+                onClick={onClose}
+                className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg sm:hidden transition-colors"
+                aria-label="Close order history"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <p className="text-xs sm:text-sm text-gray-500 mb-2 break-words">
+              {customer?.name || 'Customer'} • {filteredOrders.length} orders • Net paid {formatCurrency(totalSpend)}
+            </p>
+            <div className="flex flex-wrap gap-2 text-xs text-gray-500">
+              <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-1">
+                <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />
+                Subtotal {formatCurrency(totalSubtotal)}
+              </span>
+              <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-1">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                Discount {formatCurrency(roundAmount(totalDiscount))}
+              </span>
+              <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-1">
+                <span className="h-1.5 w-1.5 rounded-full bg-purple-500" />
+                Tax {formatCurrency(roundAmount(totalTax))}
+              </span>
+              <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-1">
+                <span className="h-1.5 w-1.5 rounded-full bg-indigo-500" />
+                Total {formatCurrency(roundAmount(totalSpend))}
+              </span>
+            </div>
+          </div>
+          <div className="hidden sm:flex items-center gap-2 flex-shrink-0">
+            <Filter className="h-4 w-4 text-gray-400" />
+            <select
+              value={filterType}
+              onChange={(e) => setFilterType(e.target.value)}
+              className="input-field !py-1.5 !px-3 text-sm"
+            >
+              <option value="all">All Orders</option>
+              <option value="today">Today</option>
+              <option value="date">Specific Date</option>
+            </select>
+            {filterType === 'date' && (
+              <input
+                type="date"
+                value={filterDate}
+                max={new Date().toISOString().split('T')[0]}
+                onChange={(e) => setFilterDate(e.target.value)}
+                className="input-field !py-1.5 !px-3 text-sm"
+              />
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="hidden sm:flex p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors flex-shrink-0"
+            aria-label="Close order history"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        {/* Mobile Filters */}
+        <div className="px-4 pt-3 pb-3 sm:hidden border-b border-gray-200 flex-shrink-0">
+          <div className="flex flex-col gap-2">
+            <label className="text-xs font-medium text-gray-600">Filter Orders</label>
+            <div className="flex items-center gap-2">
+              <select
+                value={filterType}
+                onChange={(e) => setFilterType(e.target.value)}
+                className="input-field text-sm flex-1"
+              >
+                <option value="all">All Orders</option>
+                <option value="today">Today</option>
+                <option value="date">Specific Date</option>
+              </select>
+              {filterType === 'date' && (
+                <input
+                  type="date"
+                  value={filterDate}
+                  max={new Date().toISOString().split('T')[0]}
+                  onChange={(e) => setFilterDate(e.target.value)}
+                  className="input-field text-sm flex-1"
+                />
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Scrollable Content */}
+        <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 sm:px-6 pb-4 pt-4 space-y-4 min-h-0">
+          {filteredOrders.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 text-gray-500">
+              <ShoppingCart className="h-12 w-12 text-gray-300 mb-4" />
+              <p className="text-sm font-medium">No orders found for this selection.</p>
+            </div>
+          ) : (
+            filteredOrders.map((order) => {
+              const orderItems = order.items || [];
+              const breakdown = computeFinancialBreakdown(order);
+
+              return (
+                <div
+                  key={order.id}
+                  className="rounded-lg sm:rounded-xl border border-gray-200 bg-gray-50/40 hover:border-primary-200 transition-colors"
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 px-4 sm:px-5 py-4">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-gray-900">Invoice ID: {order.id?.slice(-8) || '—'}</p>
+                      <p className="text-xs text-gray-500 mt-0.5 break-words">{formatDateTime(order.createdAt || order.date)}</p>
+                    </div>
+                    <div className="flex items-center justify-between sm:block sm:text-right">
+                      <div>
+                        <p className="text-lg sm:text-xl font-semibold text-primary-600">{formatCurrency(breakdown.netTotal)}</p>
+                        <p className="text-xs text-gray-500 uppercase tracking-wide mt-0.5">{order.paymentMethod || 'cash'}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleShareOrder(order)}
+                        className="sm:mt-2 inline-flex items-center gap-1.5 rounded-lg border border-primary-100 bg-primary-50 px-3 py-1.5 text-xs font-medium text-primary-600 hover:bg-primary-100 transition-colors active:scale-95"
+                      >
+                        <Share2 className="h-3.5 w-3.5" />
+                        <span className="hidden sm:inline">Share Bill</span>
+                        <span className="sm:hidden">Share</span>
+                      </button>
+                    </div>
+                  </div>
+                  {(() => {
+                    const paymentMethod = (order.paymentMethod || '').toString().toLowerCase().trim();
+                    if (paymentMethod === 'split') {
+                      const paymentDetails = order.splitPaymentDetails || {};
+                      const cashAmount = Number(paymentDetails.cashAmount) || 0;
+                      const onlineAmount = Number(paymentDetails.onlineAmount) || 0;
+                      const dueAmount = Number(paymentDetails.dueAmount) || 0;
+
+                      return (
+                        <div className="px-4 sm:px-5 pb-3">
+                          <p className="text-xs sm:text-sm text-gray-600 mb-2 font-medium">Split Payment Breakdown</p>
+                          <div className="grid grid-cols-3 gap-2 sm:gap-3">
+                            <div className="bg-green-50 border border-green-200 rounded-lg p-2 sm:p-3">
+                              <p className="text-[10px] sm:text-xs text-green-700 font-medium mb-0.5 sm:mb-1">Cash</p>
+                              <p className="text-sm sm:text-lg font-bold text-green-900">{formatCurrency(cashAmount)}</p>
+                            </div>
+                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-2 sm:p-3">
+                              <p className="text-[10px] sm:text-xs text-blue-700 font-medium mb-0.5 sm:mb-1">Online</p>
+                              <p className="text-sm sm:text-lg font-bold text-blue-900">{formatCurrency(onlineAmount)}</p>
+                            </div>
+                            <div className="bg-red-50 border border-red-200 rounded-lg p-2 sm:p-3">
+                              <p className="text-[10px] sm:text-xs text-red-700 font-medium mb-0.5 sm:mb-1">Due</p>
+                              <p className="text-sm sm:text-lg font-bold text-red-900">{formatCurrency(dueAmount)}</p>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
+                  {orderItems.length > 0 && (
+                    <div className="px-4 sm:px-5 pb-4 space-y-3">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
+                        <div className="rounded-lg bg-white border border-gray-200 px-2.5 sm:px-3 py-2 sm:py-2.5">
+                          <p className="text-[10px] sm:text-xs text-gray-500 uppercase tracking-wide mb-1">Subtotal</p>
+                          <p className="text-xs sm:text-sm font-semibold text-gray-900 break-words">{formatCurrency(breakdown.subtotal)}</p>
+                        </div>
+                        <div className="rounded-lg bg-white border border-gray-200 px-2.5 sm:px-3 py-2 sm:py-2.5">
+                          <p className="text-[10px] sm:text-xs text-gray-500 uppercase tracking-wide mb-1">Discount ({(breakdown.discountPercent || 0).toFixed(2)}%)</p>
+                          <p className="text-xs sm:text-sm font-semibold text-emerald-600 break-words">
+                            - {formatCurrency(breakdown.discountAmount)}
+                          </p>
+                        </div>
+                        <div className="rounded-lg bg-white border border-gray-200 px-2.5 sm:px-3 py-2 sm:py-2.5">
+                          <p className="text-[10px] sm:text-xs text-gray-500 uppercase tracking-wide mb-1">Tax ({(breakdown.taxPercent || 0).toFixed(2)}%)</p>
+                          <p className="text-xs sm:text-sm font-semibold text-purple-600 break-words">
+                            + {formatCurrency(breakdown.taxAmount)}
+                          </p>
+                        </div>
+                        <div className="rounded-lg bg-white border border-gray-200 px-2.5 sm:px-3 py-2 sm:py-2.5">
+                          <p className="text-[10px] sm:text-xs text-gray-500 uppercase tracking-wide mb-1">Net Total</p>
+                          <p className="text-xs sm:text-sm font-semibold text-primary-600 break-words">{formatCurrency(breakdown.netTotal)}</p>
+                        </div>
+                      </div>
+
+                      <div className="bg-white rounded-lg sm:rounded-xl border border-gray-200 overflow-x-auto">
+                        <table className="min-w-full divide-y divide-gray-200 text-xs sm:text-sm">
+                          <thead className="bg-gray-100">
+                            <tr>
+                              <th className="px-3 sm:px-4 py-2 text-left font-medium text-gray-600 whitespace-nowrap">Item</th>
+                              <th className="px-3 sm:px-4 py-2 text-center font-medium text-gray-600 whitespace-nowrap">Qty</th>
+                              <th className="px-3 sm:px-4 py-2 text-right font-medium text-gray-600 whitespace-nowrap">Rate</th>
+                              <th className="px-3 sm:px-4 py-2 text-right font-medium text-gray-600 whitespace-nowrap">Total</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100">
+                          {orderItems.map((item, idx) => {
+  // quantity
+  const qty = Number(item.quantity ?? item.originalQuantity?.quantity ?? 0) || 0;
+
+  // prefer explicit total fields if available
+  const totalValue = Number(item.totalSellingPrice ?? item.total ?? item.sellingPrice ?? item.price ?? 0) || 0;
+
+  // If qty > 0, compute per-unit rate from totalValue (handles cases where sellingPrice is total)
+  // Otherwise, try to read a per-unit field directly
+  const rate = qty > 0
+    ? (totalValue / qty)
+    : Number(item.unitSellingPrice ?? item.sellingPrice ?? item.price ?? 0) || 0;
+
+  // Always compute line total from rate*qty (keeps display consistent)
+  const lineTotal = Number((rate * qty)) || totalValue; // fallback to totalValue if qty === 0
+
+  return (
+    <tr key={idx}>
+      <td className="px-3 sm:px-4 py-2 text-gray-800 break-words max-w-[120px] sm:max-w-none">{item.name}</td>
+      <td className="px-3 sm:px-4 py-2 text-center text-gray-600 whitespace-nowrap">{qty} {item.unit || item.quantityUnit || ''}</td>
+      <td className="px-3 sm:px-4 py-2 text-right text-gray-600 whitespace-nowrap">{formatCurrency(rate)}</td>
+      <td className="px-3 sm:px-4 py-2 text-right font-medium text-gray-700 whitespace-nowrap">{formatCurrency(lineTotal)}</td>
+    </tr>
+  );
+})}
+
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default OrderHistoryModal;
