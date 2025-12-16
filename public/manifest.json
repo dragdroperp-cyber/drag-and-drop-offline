@@ -4,13 +4,13 @@
   "description": "Modern Grocery ERP System for inventory and billing management - Works Offline",
   "icons": [
     {
-      "src": "assets/drag-and-drop-logo.jpg",
+      "src": "assets/drag-and-drop-logo-croped.jpg",
       "sizes": "192x192",
       "type": "image/jpeg",
       "purpose": "any"
     },
     {
-      "src": "assets/drag-and-drop-logo.jpg",
+      "src": "assets/drag-and-drop-logo-croped.jpg",
       "sizes": "512x512",
       "type": "image/jpeg",
       "purpose": "any maskable"
