@@ -1,7 +1,7 @@
 // Optimized Service Worker for Grocery Studio PWA
-// Version: 1.0.1.0
+// Version: 1.0.1.1
 // Auto-versioned based on build timestamp for cache busting
-const CACHE_VERSION = '1.0.1.0';
+const CACHE_VERSION = '1.0.1.1';
 const CACHE_NAMES = {
   STATIC: `grocery-studio-static-${CACHE_VERSION}`,
   RUNTIME: `grocery-studio-runtime-${CACHE_VERSION}`,
