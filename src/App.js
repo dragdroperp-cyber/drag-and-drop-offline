@@ -190,14 +190,36 @@ const AppContent = () => {
     }
   }, [state.darkMode]);
 
-  // Request notification permission for background sync notifications
+  // Request notification permission and show welcome notification
   useEffect(() => {
-    if (state.isAuthenticated && 'Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission().then(permission => {
-        if (permission === 'granted') {
-          console.log('Notification permission granted.');
+    if (state.isAuthenticated && 'Notification' in window) {
+      const showWelcomeNotification = () => {
+        try {
+          // Check if we've already shown the welcome notification this session to avoid spam
+          if (sessionStorage.getItem('welcome_notification_shown')) return;
+
+          new Notification('Welcome Back! 👋', {
+            body: 'You are now online. We will notify you when background tasks complete.',
+            icon: '/favicon.ico',
+            tag: 'welcome-notification'
+          });
+
+          sessionStorage.setItem('welcome_notification_shown', 'true');
+        } catch (e) {
+          console.error('Notification error:', e);
         }
-      });
+      };
+
+      if (Notification.permission === 'granted') {
+        showWelcomeNotification();
+      } else if (Notification.permission !== 'denied') {
+        Notification.requestPermission().then(permission => {
+          if (permission === 'granted') {
+            console.log('Notification permission granted.');
+            showWelcomeNotification();
+          }
+        });
+      }
     }
   }, [state.isAuthenticated]);
 
