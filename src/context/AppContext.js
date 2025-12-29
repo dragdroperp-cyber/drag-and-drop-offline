@@ -1629,6 +1629,7 @@ const appReducer = (state, action) => {
 
       updateInIndexedDB(STORES.customers, updatedCustomer)
         .then(() => {
+          registerBackgroundSync();
           // Show success message for user edits (not sync callbacks)
           if (!isFromSyncCallback && window.showToast) {
             const customerName = action.payload.name || action.payload.mobileNumber || 'Customer';
@@ -1699,6 +1700,7 @@ const appReducer = (state, action) => {
         // Update in IndexedDB (soft delete - mark as deleted)
         updateInIndexedDB(STORES.customers, deletedCustomer, true) // Skip validation for soft delete
           .then(() => {
+            registerBackgroundSync();
             //('✅ Customer marked as deleted in IndexedDB:', action.payload);
             // Sync deletion to MongoDB if online
             if (syncService.isOnline()) {
