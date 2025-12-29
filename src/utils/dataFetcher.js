@@ -59,6 +59,22 @@ export const notifyRefreshProgress = (progress, message) => {
 };
 
 /**
+ * Register background sync task with Service Worker
+ * Call this whenever valid data is saved locally that needs to be synced
+ */
+export const registerBackgroundSync = async () => {
+  try {
+    if ('serviceWorker' in navigator && 'SyncManager' in window) {
+      const registration = await navigator.serviceWorker.ready;
+      await registration.sync.register('sync-data');
+      console.log('🔄 Background sync registered successfully');
+    }
+  } catch (error) {
+    console.warn('⚠️ Background sync registration failed:', error);
+  }
+};
+
+/**
  * Deduplicate API requests - if same request is in flight, return the pending promise
  * This prevents multiple simultaneous calls to the same endpoint
  */
@@ -3181,6 +3197,11 @@ export const updateInventoryAfterSale = async (order) => {
 
     if (updatedBatches.length > 0) {
       await updateMultipleItems(STORES.productBatches, updatedBatches);
+    }
+
+    // Register background sync if any inventory updates were pending sync
+    if (updatedProducts.length > 0 || updatedBatches.length > 0) {
+      registerBackgroundSync();
     }
 
     console.log('📊 Final inventory status:', {
