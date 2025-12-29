@@ -28,7 +28,8 @@ import {
   backgroundSyncWithBackend,
   updateInventoryAfterSale,
   normalizeProductBatch,
-  initializeOfflineSync
+  initializeOfflineSync,
+  registerBackgroundSync
 } from '../utils/dataFetcher';
 import { apiRequest, createOrder } from '../utils/api';
 import { setOrderHashPendingChecker, setOnItemSyncedCallback, setOnSyncCompletedCallback } from '../services/syncService';
@@ -1560,6 +1561,7 @@ const appReducer = (state, action) => {
 
       addToIndexedDB(STORES.customers, newCustomer)
         .then(() => {
+          registerBackgroundSync();
           if (syncService.isOnline()) {
             syncService.syncAll(getStoreFunctions).catch(err => console.error('MongoDB sync error:', err));
           }
@@ -1857,6 +1859,7 @@ const appReducer = (state, action) => {
 
       addToIndexedDB(STORES.products, newProduct)
         .then(() => {
+          registerBackgroundSync();
           // Step 2: After IndexedDB save succeeds, sync to MongoDB if online
           if (syncService.isOnline()) {
             syncService.syncAll(getStoreFunctions).catch(err => console.error('MongoDB sync error:', err));
@@ -2394,6 +2397,8 @@ const appReducer = (state, action) => {
 
       updateInIndexedDB(STORES.orders, validatedOrder, true) // Skip validation since we validated above
         .then(async (result) => {
+          // Register for background sync immediately after saving to IDB
+          registerBackgroundSync();
           //('✅ Order successfully saved to IndexedDB!', validatedOrder.id, result);
 
 
