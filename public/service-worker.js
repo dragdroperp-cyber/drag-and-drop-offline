@@ -1,7 +1,7 @@
 // Optimized Service Worker for Grocery Studio PWA
-// Version: 1.0.1.9
+// Version: 1.0.2.0
 // Auto-versioned based on build timestamp for cache busting
-const CACHE_VERSION = '1.0.1.9';
+const CACHE_VERSION = '1.0.2.0';
 const CACHE_NAMES = {
   STATIC: `grocery-studio-static-${CACHE_VERSION}`,
   RUNTIME: `grocery-studio-runtime-${CACHE_VERSION}`,
@@ -480,6 +480,7 @@ async function syncData() {
 
     const storesToSync = Object.values(STORES);
     let totalSynced = 0;
+    let hasFailures = false;
 
     for (const storeName of storesToSync) {
       if (!db.objectStoreNames.contains(storeName)) continue;
@@ -513,9 +514,13 @@ async function syncData() {
             // Update local item as synced
             await updateLocalItem(db, storeName, item, result);
             totalSynced++;
+          } else {
+            console.error(`[SW] Server error syncing item ${item.id}:`, response.status);
+            hasFailures = true;
           }
         } catch (err) {
           console.error(`[SW] Failed to sync item ${item.id} in ${storeName}:`, err);
+          hasFailures = true;
         }
       }
     }
@@ -538,8 +543,15 @@ async function syncData() {
       }
     }
 
+    // If there were any failures, throw error to trigger browser retry logic
+    if (hasFailures) {
+      throw new Error('Some items failed to sync. Scheduling retry.');
+    }
+
   } catch (error) {
     console.error('[SW] Background sync failed:', error);
+    // Rethrow to ensure browser knows task failed
+    throw error;
   }
 }
 
