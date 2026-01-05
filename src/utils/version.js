@@ -1,0 +1,4 @@
+// App version information
+// Keep this in sync with CACHE_VERSION in service-worker.js
+export const APP_VERSION = 'v1.0.2.4';
+export const APP_NAME = 'Grocery ERP';
