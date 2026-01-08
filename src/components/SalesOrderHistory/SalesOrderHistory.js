@@ -1,0 +1,1764 @@
+import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { useApp } from '../../context/AppContext';
+import {
+  Calendar,
+  Download,
+  Eye,
+  Receipt,
+  IndianRupee,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  Filter,
+  FileSpreadsheet,
+  FileJson,
+  X,
+  Share2,
+  CalendarRange,
+  XCircle,
+  ShoppingCart,
+  Search
+} from 'lucide-react';
+import jsPDF from 'jspdf';
+import { sanitizeMobileNumber } from '../../utils/validation';
+import { calculateItemRateAndTotal, formatCurrency, formatCurrencySmart } from '../../utils/orderUtils';
+import { formatDate, formatDateTime } from '../../utils/dateUtils';
+import { getTranslation } from '../../utils/translations';
+
+
+
+const SalesOrderHistory = () => {
+  const { state } = useApp();
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterPaymentMethod, setFilterPaymentMethod] = useState('all');
+  const [filterDateRange, setFilterDateRange] = useState('today');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(25);
+  const [selectedOrder, setSelectedOrder] = useState(null);
+  const [showOrderDetails, setShowOrderDetails] = useState(false);
+  const [isClosingOrderDetails, setIsClosingOrderDetails] = useState(false);
+
+  const handleCloseOrderDetails = () => {
+    setIsClosingOrderDetails(true);
+    setTimeout(() => {
+      setShowOrderDetails(false);
+      setSelectedOrder(null);
+      setIsClosingOrderDetails(false);
+    }, 400);
+  };
+
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const [showCustomDateModal, setShowCustomDateModal] = useState(false);
+  const [customDateRange, setCustomDateRange] = useState({
+    start: new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().split('T')[0],
+    end: new Date().toISOString().split('T')[0]
+  });
+  const [tempCustomRange, setTempCustomRange] = useState({ ...customDateRange });
+  const exportMenuRef = useRef(null);
+
+  // Close export menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (exportMenuRef.current && typeof exportMenuRef.current.contains === 'function' && event.target && !exportMenuRef.current.contains(event.target)) {
+        setShowExportMenu(false);
+      }
+    };
+
+    if (showExportMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showExportMenu]);
+
+  // Get all orders (excluding deleted) and enrich with customer details
+  const allOrders = useMemo(() => {
+    return (state.orders || []).filter(order => !order.isDeleted).map(order => {
+      // Enrich with customer details if missing
+      if ((!order.customerName || !order.customerMobile) && order.customerId) {
+        const customer = state.customers.find(c => c.id === order.customerId || c._id === order.customerId);
+        if (customer) {
+          return {
+            ...order,
+            customerName: order.customerName || customer.name,
+            customerMobile: order.customerMobile || customer.mobileNumber || customer.phone || ''
+          };
+        }
+      }
+      return order;
+    });
+  }, [state.orders, state.customers]);
+
+  // Filter orders
+  const filteredOrders = useMemo(() => {
+    let filtered = allOrders;
+
+    // Search filter
+    if (searchTerm) {
+      const searchLower = searchTerm.toLowerCase();
+      filtered = filtered.filter(order => {
+        const customerName = (order.customerName || '').toLowerCase();
+        const customerMobile = (order.customerMobile || '').toLowerCase();
+        const orderId = (order.id || '').toString().toLowerCase();
+
+        return customerName.includes(searchLower) ||
+          customerMobile.includes(searchLower) ||
+          orderId.includes(searchLower);
+      });
+    }
+
+    // Payment method filter
+    if (filterPaymentMethod !== 'all') {
+      filtered = filtered.filter(order => {
+        const paymentMethod = (order.paymentMethod || '').toLowerCase();
+        if (filterPaymentMethod.toLowerCase() === 'online') {
+          return paymentMethod === 'card' || paymentMethod === 'upi' || paymentMethod === 'online' ||
+            (paymentMethod === 'split' && order.splitPaymentDetails && order.splitPaymentDetails.onlineAmount > 0);
+        }
+        if (filterPaymentMethod.toLowerCase() === 'cash') {
+          return paymentMethod === 'cash' ||
+            (paymentMethod === 'split' && order.splitPaymentDetails && order.splitPaymentDetails.cashAmount > 0);
+        }
+        if (filterPaymentMethod.toLowerCase() === 'due') {
+          return paymentMethod === 'due' || paymentMethod === 'credit' ||
+            (paymentMethod === 'split' && order.splitPaymentDetails && order.splitPaymentDetails.dueAmount > 0);
+        }
+        return paymentMethod === filterPaymentMethod.toLowerCase();
+      });
+    }
+
+    // Date range filter
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    filtered = filtered.filter(order => {
+      const orderDate = new Date(order.createdAt || order.date || 0);
+      if (Number.isNaN(orderDate.getTime())) return false;
+      orderDate.setHours(0, 0, 0, 0);
+
+      switch (filterDateRange) {
+        case 'today':
+          return orderDate.getTime() === today.getTime();
+        case 'week':
+          const weekAgo = new Date(today);
+          weekAgo.setDate(weekAgo.getDate() - 7);
+          return orderDate >= weekAgo;
+        case 'month':
+          const monthAgo = new Date(today);
+          monthAgo.setDate(monthAgo.getDate() - 30);
+          return orderDate >= monthAgo;
+        case 'custom':
+          const customStart = new Date(customDateRange.start);
+          customStart.setHours(0, 0, 0, 0);
+          const customEnd = new Date(customDateRange.end);
+          customEnd.setHours(23, 59, 59, 999);
+          return orderDate >= customStart && orderDate <= customEnd;
+        default:
+          return true;
+      }
+    });
+
+    // Sort by date (newest first)
+    return filtered.sort((a, b) => {
+      const dateA = new Date(a.createdAt || a.date || 0);
+      const dateB = new Date(b.createdAt || b.date || 0);
+      return dateB - dateA;
+    });
+  }, [allOrders, searchTerm, filterPaymentMethod, filterDateRange, customDateRange]);
+
+  // Pagination
+  const totalPages = Math.ceil(filteredOrders.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedOrders = filteredOrders.slice(startIndex, startIndex + itemsPerPage);
+
+  const handlePageChange = (page) => {
+    setCurrentPage(page);
+  };
+
+  const getPageNumbers = () => {
+    const pages = [];
+    const maxVisiblePages = 5;
+
+    if (totalPages <= maxVisiblePages) {
+      for (let i = 1; i <= totalPages; i++) {
+        pages.push(i);
+      }
+    } else {
+      if (currentPage <= 3) {
+        for (let i = 1; i <= 4; i++) {
+          pages.push(i);
+        }
+        pages.push('ellipsis');
+        pages.push(totalPages);
+      } else if (currentPage >= totalPages - 2) {
+        pages.push(1);
+        pages.push('ellipsis');
+        for (let i = totalPages - 3; i <= totalPages; i++) {
+          pages.push(i);
+        }
+      } else {
+        pages.push(1);
+        pages.push('ellipsis');
+        for (let i = currentPage - 1; i <= currentPage + 1; i++) {
+          pages.push(i);
+        }
+        pages.push('ellipsis');
+        pages.push(totalPages);
+      }
+    }
+    return pages;
+  };
+
+  // Calculate stats
+  const totalSales = filteredOrders.reduce((sum, order) => {
+    return sum + (Number(order.totalAmount) || Number(order.total) || 0);
+  }, 0);
+
+  const cashSales = filteredOrders
+    .filter(order => {
+      const method = (order.paymentMethod || '').toLowerCase();
+      if (method === 'split' && order.splitPaymentDetails) {
+        return order.splitPaymentDetails.cashAmount > 0;
+      }
+      return method === 'cash';
+    })
+    .reduce((sum, order) => {
+      const method = (order.paymentMethod || '').toLowerCase();
+      if (method === 'split' && order.splitPaymentDetails) {
+        return sum + (order.splitPaymentDetails.cashAmount || 0);
+      }
+      return sum + (Number(order.totalAmount) || Number(order.total) || 0);
+    }, 0);
+
+  const onlineSales = filteredOrders
+    .filter(order => {
+      const method = (order.paymentMethod || '').toLowerCase();
+      if (method === 'split' && order.splitPaymentDetails) {
+        return order.splitPaymentDetails.onlineAmount > 0;
+      }
+      return method === 'card' || method === 'upi' || method === 'online';
+    })
+    .reduce((sum, order) => {
+      const method = (order.paymentMethod || '').toLowerCase();
+      if (method === 'split' && order.splitPaymentDetails) {
+        return sum + (order.splitPaymentDetails.onlineAmount || 0);
+      }
+      return sum + (Number(order.totalAmount) || Number(order.total) || 0);
+    }, 0);
+
+  const dueSales = filteredOrders
+    .filter(order => {
+      const method = (order.paymentMethod || '').toLowerCase();
+      if (method === 'split' && order.splitPaymentDetails) {
+        return order.splitPaymentDetails.dueAmount > 0;
+      }
+      return method === 'due' || method === 'credit';
+    })
+    .reduce((sum, order) => {
+      const method = (order.paymentMethod || '').toLowerCase();
+      if (method === 'split' && order.splitPaymentDetails) {
+        return sum + (order.splitPaymentDetails.dueAmount || 0);
+      }
+      return sum + (Number(order.totalAmount) || Number(order.total) || 0);
+    }, 0);
+
+  // Export functions
+  const exportToCSV = () => {
+    const headers = ['Customer Name', 'Customer Mobile', 'Payment Method', 'Total Amount', 'Date'];
+    const rows = filteredOrders.map(order => [
+      order.customerName || '',
+      order.customerMobile || '',
+      getPaymentMethodLabel(order.paymentMethod, order.splitPaymentDetails) || '',
+      (Number(order.totalAmount) || Number(order.total) || 0).toFixed(2),
+      formatDate(order.createdAt || order.date)
+    ]);
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `sales-orders-${new Date().toISOString().split('T')[0]}.csv`;
+    link.click();
+  };
+
+  const exportToJSON = () => {
+    // Clone orders and replace ID with random ID, and remove strictly internal MongoDB/system IDs
+    const data = filteredOrders.map(order => {
+      // Create a shallow copy
+      const newOrder = { ...order };
+
+      // Replace id with random
+      newOrder.id = Math.random().toString(36).substr(2, 9);
+
+      // Remove root level internal IDs
+      if (newOrder._id) delete newOrder._id;
+      // Randomize sensitive IDs instead of deleting them
+      if (newOrder.customerId) newOrder.customerId = Math.random().toString(36).substr(2, 9);
+      if (newOrder.sellerId) newOrder.sellerId = Math.random().toString(36).substr(2, 9);
+      if (newOrder.merchantId) newOrder.merchantId = Math.random().toString(36).substr(2, 9);
+      if (newOrder.userId) newOrder.userId = Math.random().toString(36).substr(2, 9);
+
+      // Sanitize items
+      if (newOrder.items && Array.isArray(newOrder.items)) {
+        newOrder.items = newOrder.items.map(item => {
+          const newItem = { ...item };
+          // Replace/Remove Item IDs
+          if (newItem._id) delete newItem._id;
+          // If item has an id, randomize it to ensure no DB id leaks
+          if (newItem.id) newItem.id = Math.random().toString(36).substr(2, 9);
+
+          // Randomize specific internal keys
+          if (newItem.productId) newItem.productId = Math.random().toString(36).substr(2, 9);
+          if (newItem.sellerId) newItem.sellerId = Math.random().toString(36).substr(2, 9);
+
+          return newItem;
+        });
+      }
+      return newOrder;
+    });
+
+    const dataStr = JSON.stringify(data, null, 2);
+    const blob = new Blob([dataStr], { type: 'application/json' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `sales-orders-${new Date().toISOString().split('T')[0]}.json`;
+    link.click();
+  };
+
+  /* ================= MODERN PDF EXPORT ================= */
+  const exportToPDF = async () => {
+    try {
+      const doc = new jsPDF('p', 'mm', 'a4');
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const margin = 15;
+      const contentWidth = pageWidth - margin * 2;
+
+      /* ================= CONFIG ================= */
+      const COLORS = {
+        primary: [47, 60, 126], // #2F3C7E
+        secondary: [236, 72, 153], // #EC4899 (Pink)
+        success: [16, 185, 129], // #10B981
+        gray: [100, 116, 139],
+        lightBg: [248, 250, 252],
+        border: [226, 232, 240],
+        black: [15, 23, 42],
+        white: [255, 255, 255]
+      };
+
+      const formatPDFCurrency = (val) => {
+        const amount = Number(val || 0);
+        const isWhole = amount % 1 === 0;
+        return `Rs. ${amount.toLocaleString('en-IN', {
+          minimumFractionDigits: isWhole ? 0 : 2,
+          maximumFractionDigits: 2
+        })}`;
+      };
+
+      // Add Watermark
+      const addWatermark = (pdfDoc) => {
+        const totalPages = pdfDoc.internal.getNumberOfPages();
+        for (let i = 1; i <= totalPages; i++) {
+          pdfDoc.setPage(i);
+          pdfDoc.saveGraphicsState();
+          pdfDoc.setGState(new pdfDoc.GState({ opacity: 0.03 }));
+          pdfDoc.setFontSize(60);
+          pdfDoc.setFont('helvetica', 'bold');
+          pdfDoc.setTextColor(...COLORS.primary);
+          pdfDoc.text('SALES REPORT', pageWidth / 2, pageHeight / 2, {
+            align: 'center',
+            angle: 45
+          });
+          pdfDoc.restoreGraphicsState();
+        }
+      };
+
+      /* -------- HELPERS -------- */
+      const safeDrawText = (pdf, text, x, y, options = {}) => {
+        const isHindi = /[\u0900-\u097F\u20B9]/.test(text);
+        if (isHindi) {
+          try {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            const fontSize = options.fontSize || 10;
+            ctx.font = `${fontSize}px "Noto Sans Devanagari", "Inter", sans-serif`;
+            const metrics = ctx.measureText(text);
+            canvas.width = metrics.width * 2;
+            canvas.height = fontSize * 2.5;
+            ctx.scale(2, 2);
+            ctx.fillStyle = options.color || '#000000';
+            ctx.font = `${fontSize}px "Noto Sans Devanagari", "Inter", sans-serif`;
+            ctx.fillText(text, 0, fontSize);
+            const dataUrl = canvas.toDataURL('image/png');
+            const w = metrics.width / 3.78;
+            const h = fontSize * 1.5 / 3.78;
+            let drawX = x;
+            if (options.align === 'right') drawX -= w;
+            else if (options.align === 'center') drawX -= w / 2;
+            pdf.addImage(dataUrl, 'PNG', drawX, y - (fontSize / 2.5), w, h);
+          } catch (e) {
+            pdf.text(text, x, y, options); // Fallback
+          }
+        } else {
+          pdf.text(text, x, y, options);
+        }
+      };
+
+      /* ================= HEADER ================= */
+      const headerHeight = 28;
+      doc.setFillColor(...COLORS.white);
+      doc.rect(0, 0, pageWidth, headerHeight, 'F');
+      doc.setDrawColor(...COLORS.primary);
+      doc.setLineWidth(1.5);
+      doc.line(0, headerHeight - 1, pageWidth, headerHeight - 1);
+
+      /* -------- LOGO & APP NAME -------- */
+      const logoX = margin;
+      const logoY = 10;
+      const logoSize = 16;
+
+      try {
+        const publicUrl = process.env.PUBLIC_URL || '';
+        const logoUrl = `${publicUrl}/assets/grocery-store-logo-removebg-preview.png`;
+        const res = await fetch(logoUrl);
+        if (res.ok) {
+          const blob = await res.blob();
+          const base64 = await new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result);
+            reader.readAsDataURL(blob);
+          });
+          doc.addImage(base64, 'PNG', logoX, logoY, logoSize, logoSize);
+        }
+      } catch (e) { }
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(18);
+      doc.setTextColor(...COLORS.primary);
+      doc.text('Grocery studio', logoX + logoSize + 4, logoY + 7);
+
+      doc.setFontSize(7);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(...COLORS.gray);
+      doc.text('Advanced Billing & Inventory Solution', logoX + logoSize + 4, logoY + 11);
+
+      /* -------- RIGHT META -------- */
+      doc.setFontSize(14);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(...COLORS.black);
+      safeDrawText(doc, getTranslation('salesReport', state.currentLanguage) || 'SALES REPORT', pageWidth - margin, logoY + 5, { align: 'right', color: '#000000', fontSize: 14 });
+
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(...COLORS.gray);
+      const today = new Date();
+      safeDrawText(doc, `Date: ${formatDate(today)}`, pageWidth - margin, logoY + 11, { align: 'right', color: '#787878', fontSize: 9 });
+
+      /* -------- CENTER SHOP INFO -------- */
+      let currentY = headerHeight + 10;
+
+      // Shop Name (Big & Bold)
+      if (state.storeName) {
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(22);
+        doc.setTextColor(...COLORS.black);
+        doc.text(state.storeName, pageWidth / 2, currentY, { align: 'center' });
+        currentY += 7;
+      }
+
+      // Address & other info (Smaller, Centered)
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      doc.setTextColor(...COLORS.gray);
+
+      const details = [];
+      if (state.storeAddress) details.push(state.storeAddress);
+      if (state.storePhone) details.push(`Contact: ${state.storePhone}`);
+      if (state.storeGstin) details.push(`GSTIN: ${state.storeGstin}`);
+
+      if (details.length > 0) {
+        doc.text(details.join(' | '), pageWidth / 2, currentY, { align: 'center' });
+        currentY += 8;
+      } else {
+        currentY += 5;
+      }
+
+      /* ================= SUMMARY CARDS ================= */
+      let y = currentY + 2;
+      const cardW = (contentWidth - 9) / 4;
+      const cardH = 22;
+
+      // Calculate totals
+      const stats_revenue = filteredOrders.reduce((sum, order) => sum + (Number(order.totalAmount) || Number(order.total) || 0), 0);
+      const stats_count = filteredOrders.length;
+
+      const metrics = [
+        { label: getTranslation('totalOrders', state.currentLanguage), value: stats_count.toString(), color: COLORS.primary },
+        { label: getTranslation('totalRevenue', state.currentLanguage), value: formatPDFCurrency(stats_revenue), color: COLORS.success },
+        { label: 'AVG. ORDER', value: formatPDFCurrency(stats_count ? stats_revenue / stats_count : 0), color: COLORS.secondary },
+        { label: 'REFUNDED', value: filteredOrders.filter(o => o.status === 'refunded').length.toString(), color: COLORS.gray }
+      ];
+
+      metrics.forEach((m, i) => {
+        const x = margin + i * (cardW + 3);
+        doc.setFillColor(255, 255, 255);
+        doc.roundedRect(x, y, cardW, cardH, 2.5, 2.5, 'F');
+        doc.setDrawColor(...COLORS.border);
+        doc.setLineWidth(0.1);
+        doc.roundedRect(x, y, cardW, cardH, 2.5, 2.5, 'S');
+
+        doc.setFontSize(7.5);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(...COLORS.gray);
+        safeDrawText(doc, m.label, x + 4, y + 8, { color: '#787878', fontSize: 7.5 });
+
+        doc.setFontSize(14);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(...COLORS.black);
+        safeDrawText(doc, m.value, x + 4, y + 16, { color: '#000000', fontSize: 16 });
+      });
+
+      y += cardH + 15;
+
+      /* ================= TABLE ================= */
+      doc.setFontSize(10.5);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(...COLORS.black);
+      safeDrawText(doc, getTranslation('orderDetails', state.currentLanguage), margin, y, { color: '#000000', fontSize: 10.5 });
+      y += 6.5;
+
+      const headers = [
+        'S.No.',
+        getTranslation('orderId', state.currentLanguage) || 'ID',
+        getTranslation('date', state.currentLanguage),
+        getTranslation('customer', state.currentLanguage),
+        { text: getTranslation('items', state.currentLanguage), align: 'center' },
+        { text: getTranslation('amount', state.currentLanguage), align: 'right' },
+        getTranslation('status', state.currentLanguage)
+      ];
+
+      // Portrait Weights
+      const colWeights = [
+        { w: 15, align: 'center' }, // S.No.
+        { w: 25, align: 'center' }, // ID
+        { w: 25, align: 'center' }, // Date
+        { w: 45, align: 'left' },   // Customer (Left)
+        { w: 15, align: 'center' }, // Items
+        { w: 30, align: 'right' },  // Amount (Right)
+        { w: 25, align: 'center' }  // Status
+      ];
+
+      // Header Row (Grid Style)
+      doc.setFillColor(245, 247, 255);
+      doc.rect(margin, y, contentWidth, 10, 'F');
+
+      // Header Outline
+      doc.setDrawColor(...COLORS.border);
+      doc.setLineWidth(0.1);
+      doc.rect(margin, y, contentWidth, 10, 'S');
+
+      // Header Vertical Lines
+      let vHeaderX = margin;
+      colWeights.forEach((col, i) => {
+        if (i < colWeights.length - 1) {
+          vHeaderX += col.w;
+          doc.line(vHeaderX, y, vHeaderX, y + 10);
+        }
+      });
+
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(...COLORS.primary);
+
+      let hX = margin;
+      headers.forEach((h, i) => {
+        const headerText = typeof h === 'object' ? h.text : h;
+        const align = colWeights[i].align || 'left';
+
+        let drawX = hX + 2;
+        if (align === 'center') drawX = hX + (colWeights[i].w / 2);
+        if (align === 'right') drawX = hX + colWeights[i].w - 2;
+
+        safeDrawText(doc, headerText, drawX, y + 6.5, { align, color: '#2F3C7E', fontSize: 9 });
+        hX += colWeights[i].w;
+      });
+
+      y += 10;
+
+      // Rows
+      if (filteredOrders.length === 0) {
+        doc.setDrawColor(...COLORS.border);
+        doc.rect(margin, y, contentWidth, 12, 'S');
+        doc.setTextColor(...COLORS.gray);
+        doc.text('No sales found', margin + contentWidth / 2, y + 8, { align: 'center' });
+        y += 12;
+      } else {
+        filteredOrders.forEach((order, index) => {
+          const rowH = 10;
+          if (y > pageHeight - 20) {
+            doc.addPage();
+            y = 20;
+
+            // Header Background
+            doc.setFillColor(245, 247, 255);
+            doc.rect(margin, y, contentWidth, 10, 'F');
+
+            // Header Outline
+            doc.setDrawColor(...COLORS.border);
+            doc.setLineWidth(0.1);
+            doc.rect(margin, y, contentWidth, 10, 'S');
+
+            // Header Vertical Lines
+            let vHeaderRepeatX = margin;
+            colWeights.forEach((col, i) => {
+              if (i < colWeights.length - 1) {
+                vHeaderRepeatX += col.w;
+                doc.line(vHeaderRepeatX, y, vHeaderRepeatX, y + 10);
+              }
+            });
+
+            doc.setFontSize(9);
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(...COLORS.primary);
+
+            let rHX = margin;
+            headers.forEach((h, i) => {
+              const headerText = typeof h === 'object' ? h.text : h;
+              const align = colWeights[i].align || 'left';
+              let drawX = rHX + 2;
+              if (align === 'center') drawX = rHX + (colWeights[i].w / 2);
+              if (align === 'right') drawX = rHX + colWeights[i].w - 2;
+
+              safeDrawText(doc, headerText, drawX, y + 6.5, { align, color: '#2F3C7E', fontSize: 9 });
+              rHX += colWeights[i].w;
+            });
+            y += 10;
+          }
+
+          if (index % 2 === 1) {
+            doc.setFillColor(252, 253, 255);
+            doc.rect(margin, y, contentWidth, rowH, 'F');
+          }
+
+          // Row Outline
+          doc.setDrawColor(...COLORS.border);
+          doc.setLineWidth(0.1);
+          doc.rect(margin, y, contentWidth, rowH, 'S');
+
+          // Row Vertical Lines
+          let vRowX = margin;
+          colWeights.forEach((col, i) => {
+            if (i < colWeights.length - 1) {
+              vRowX += col.w;
+              doc.line(vRowX, y, vRowX, y + rowH);
+            }
+          });
+
+          doc.setTextColor(...COLORS.black);
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(9);
+
+          const orderId = order.id ? order.id.toString().slice(-6).toUpperCase() : '-';
+          const dateStr = formatDate(order.createdAt || order.date);
+          const customerName = (order.customerName || getTranslation('walkInCustomer', state.currentLanguage)).substring(0, 25);
+          const itemsCount = (order.items || []).length.toString();
+          const amountStr = formatPDFCurrency(order.totalAmount || 0);
+          const status = (order.status || 'Completed').toUpperCase();
+
+          let rowX = margin;
+
+          // S.No.
+          safeDrawText(doc, (index + 1).toString(), rowX + (colWeights[0].w / 2), y + 6.5, { align: 'center', color: '#000000', fontSize: 9 });
+          rowX += colWeights[0].w;
+
+          // ID (Center)
+          safeDrawText(doc, orderId, rowX + (colWeights[1].w / 2), y + 6.5, { align: 'center', color: '#000000', fontSize: 9 });
+          rowX += colWeights[1].w;
+
+          // Date (Center)
+          safeDrawText(doc, dateStr, rowX + (colWeights[2].w / 2), y + 6.5, { align: 'center', color: '#000000', fontSize: 9 });
+          rowX += colWeights[2].w;
+
+          // Customer (Left Aligned Data, but Header was Centered)
+          safeDrawText(doc, customerName, rowX + 2, y + 6.5, { color: '#000000', fontSize: 9 });
+          rowX += colWeights[3].w;
+
+          // Items (Center)
+          safeDrawText(doc, itemsCount, rowX + (colWeights[4].w / 2), y + 6.5, { align: 'center', color: '#000000', fontSize: 9 });
+          rowX += colWeights[4].w;
+
+          // Amount (Right)
+          doc.setFont('helvetica', 'bold');
+          safeDrawText(doc, amountStr, rowX + colWeights[5].w - 2, y + 6.5, { align: 'right', color: '#000000', fontSize: 9 });
+          doc.setFont('helvetica', 'normal');
+          rowX += colWeights[5].w;
+
+          // Status (Center)
+          if (status === 'REFUNDED' || status === 'CANCELLED') doc.setTextColor(220, 38, 38);
+          else if (status === 'PENDING') doc.setTextColor(202, 138, 4);
+          else doc.setTextColor(22, 163, 74); // Green
+
+          safeDrawText(doc, status, rowX + (colWeights[6].w / 2), y + 6.5, { align: 'center', fontSize: 8 });
+          doc.setTextColor(...COLORS.black); // Reset
+
+          y += rowH;
+        });
+      }
+
+      /* ================= FOOTER ================= */
+      const pageCount = doc.internal.getNumberOfPages();
+      for (let i = 1; i <= pageCount; i++) {
+        doc.setPage(i);
+        doc.setFontSize(8);
+        doc.setTextColor(...COLORS.gray);
+        doc.text(`Page ${i} of ${pageCount}`, margin, pageHeight - 10);
+        doc.text(`${state.storeName || 'Store'} - Sales Report`, pageWidth - margin, pageHeight - 10, { align: 'right' });
+      }
+
+      addWatermark(doc);
+
+      doc.save(`sales-report-${formatDate(new Date()).replace(/\//g, '-')}.pdf`);
+      if (window.showToast) {
+        window.showToast(getTranslation('exportPDFSuccess', state.currentLanguage), 'success');
+      }
+
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      if (window.showToast) {
+        window.showToast(getTranslation('exportError', state.currentLanguage), 'error');
+      }
+    }
+  };
+
+  const handleViewOrder = (order) => {
+    setSelectedOrder(order);
+    setShowOrderDetails(true);
+  };
+
+  const getPaymentMethodBadgeClass = (method) => {
+    const m = (method || '').toLowerCase();
+    if (m === 'cash') return 'bg-green-50 text-green-700';
+    if (m === 'card' || m === 'upi' || m === 'online') return 'bg-blue-50 text-blue-700';
+    if (m === 'due' || m === 'credit') return 'bg-red-50 text-red-700';
+    return 'bg-gray-50 text-gray-700';
+  };
+
+  const getPaymentMethodLabel = (method, splitDetails) => {
+    const m = (method || '').toLowerCase();
+    if (m === 'split' && splitDetails) {
+      const parts = [];
+      if (splitDetails.cashAmount > 0) parts.push(`${getTranslation('cash', state.currentLanguage)}: ${formatCurrencySmart(splitDetails.cashAmount, state.currencyFormat)}`);
+      if (splitDetails.onlineAmount > 0) parts.push(`${getTranslation('online', state.currentLanguage)}: ${formatCurrencySmart(splitDetails.onlineAmount, state.currencyFormat)}`);
+      if (splitDetails.creditAmount > 0) parts.push(`${getTranslation('creditUsed', state.currentLanguage) || 'Credit Used'}: ${formatCurrencySmart(splitDetails.creditAmount, state.currencyFormat)}`);
+      if (splitDetails.dueAmount > 0) parts.push(`${getTranslation('due', state.currentLanguage)}: ${formatCurrencySmart(splitDetails.dueAmount, state.currencyFormat)}`);
+      return `${getTranslation('split', state.currentLanguage) || 'Split'}(${parts.join(', ')})`;
+    }
+    if (m === 'cash') return getTranslation('cash', state.currentLanguage);
+    if (m === 'online') return getTranslation('online', state.currentLanguage);
+    if (m === 'due' || m === 'credit') return getTranslation('due', state.currentLanguage);
+    return method || 'N/A';
+  };
+
+  const buildWhatsAppInvoiceMessage = (order) => {
+    if (!order) return '';
+
+    const withNull = (value) =>
+      value === null || value === undefined || value === '' ? 'null' : value;
+
+    const storeName = withNull(
+      state.storeName || state.currentUser?.shopName || state.currentUser?.username || 'Store'
+    );
+    const storeAddress = withNull(state.currentUser?.shopAddress || '');
+    const storePhoneRaw =
+      state.currentUser?.phoneNumber ||
+      state.currentUser?.mobileNumber ||
+      state.currentUser?.phone ||
+      state.currentUser?.contact ||
+      '';
+    const storePhoneSanitized = sanitizeMobileNumber(storePhoneRaw);
+    const storePhoneDisplay = storePhoneSanitized
+      ? `+ 91 ${storePhoneSanitized} `
+      : withNull(storePhoneRaw);
+
+    const invoiceDateObj = new Date(order.createdAt || order.date || Date.now());
+    const invoiceDate = Number.isNaN(invoiceDateObj.getTime())
+      ? 'null'
+      : formatDate(invoiceDateObj);
+
+    const customerName = withNull(order.customerName || 'Customer');
+    const customerMobileSanitized = sanitizeMobileNumber(order.customerMobile || '');
+    const customerPhoneDisplay = customerMobileSanitized
+      ? `+ 91 ${customerMobileSanitized} `
+      : 'null';
+
+    const toNumber = (value, fallback = 0) => {
+      const num = Number(value);
+      return Number.isFinite(num) ? num : fallback;
+    };
+
+    const subtotalRaw = toNumber(order.subtotal ?? order.subTotal ?? order.totalAmount ?? order.total ?? 0, 0);
+    const discountRaw = toNumber(order.discountAmount ?? order.discount ?? 0, 0);
+    const taxAmountRaw = toNumber(order.taxAmount ?? order.tax ?? 0, 0);
+    const totalRaw = toNumber(order.totalAmount ?? order.total ?? subtotalRaw, 0);
+
+    const taxPercentSource = order.taxPercent ?? order.taxRate;
+    const taxPercentRaw =
+      taxPercentSource !== undefined && taxPercentSource !== null
+        ? Number(taxPercentSource)
+        : subtotalRaw > 0
+          ? (taxAmountRaw / subtotalRaw) * 100
+          : null;
+
+    const subtotalDisplay = formatCurrencySmart(subtotalRaw, state.currencyFormat);
+    const discountDisplay = formatCurrencySmart(discountRaw, state.currencyFormat);
+    const taxAmountDisplay = formatCurrencySmart(taxAmountRaw, state.currencyFormat);
+    const taxPercentDisplay = Number.isFinite(taxPercentRaw)
+      ? `${(taxPercentRaw % 1 === 0 ? taxPercentRaw.toFixed(0) : taxPercentRaw.toFixed(2))}% `
+      : 'null';
+    const totalDisplay = formatCurrencySmart(totalRaw, state.currencyFormat);
+
+    // Column widths optimized for WhatsApp display
+    // WhatsApp may collapse spaces, so we use wider columns and ensure proper spacing
+    const itemWidth = 30; // Wider for better readability on WhatsApp
+    const quantityWidth = 10; // Wider for centering
+    const rateWidth = 15; // Wider for currency values
+    const amountWidth = 16; // Wider for large amounts
+    const spacing = '  |  '; // Use pipe separator for better visual separation on WhatsApp
+    const spacingLength = spacing.length;
+
+    // Calculate total line width for consistency
+    const totalLineWidth = itemWidth + spacingLength + quantityWidth + spacingLength + rateWidth + spacingLength + amountWidth;
+
+    // Helper to ensure exact width (truncates or pads as needed)
+    // This ensures every column cell is exactly its width - critical for alignment
+    const ensureWidth = (text, width, align = 'left') => {
+      const textStr = String(text || '');
+      if (textStr.length > width) {
+        return textStr.substring(0, width);
+      }
+      if (align === 'center') {
+        const padding = Math.floor((width - textStr.length) / 2);
+        return ' '.repeat(padding) + textStr + ' '.repeat(width - textStr.length - padding);
+      } else if (align === 'right') {
+        return textStr.padStart(width, ' ');
+      } else {
+        return textStr.padEnd(width, ' ');
+      }
+    };
+
+    // Helper to center-align text within a column width (ensures exact width)
+    const centerInColumn = (text, width) => {
+      const textStr = String(text || '');
+      if (textStr.length >= width) {
+        return textStr.substring(0, width);
+      }
+      const padding = Math.floor((width - textStr.length) / 2);
+      const leftPad = ' '.repeat(padding);
+      const rightPad = ' '.repeat(width - textStr.length - padding);
+      return leftPad + textStr + rightPad;
+    };
+
+    // Helper to left-align and wrap text within a column width (ensures exact width)
+    const leftAlignAndWrap = (text, width) => {
+      const textStr = String(text || '');
+      if (textStr.length <= width) {
+        return [ensureWidth(textStr, width)];
+      }
+      // Wrap text if it exceeds width
+      const lines = [];
+      let remaining = textStr;
+      while (remaining.length > 0) {
+        if (remaining.length <= width) {
+          lines.push(ensureWidth(remaining, width));
+          break;
+        }
+        // Try to break at word boundary
+        let breakPoint = width;
+        const spaceIndex = remaining.lastIndexOf(' ', width);
+        if (spaceIndex > width * 0.5) {
+          breakPoint = spaceIndex;
+        }
+        const line = remaining.substring(0, breakPoint);
+        lines.push(ensureWidth(line, width));
+        remaining = remaining.substring(breakPoint).trim();
+      }
+      return lines;
+    };
+
+    // Helper to center-align text within exact width
+    // Optimized for WhatsApp - uses more padding for better visual centering
+    const centerInWidth = (text, width) => {
+      const textStr = String(text || '');
+      if (textStr.length >= width) {
+        return textStr.substring(0, width);
+      }
+      const totalPadding = width - textStr.length;
+      const leftPadding = Math.floor(totalPadding / 2);
+      const rightPadding = totalPadding - leftPadding;
+      // Use multiple spaces for better visibility on WhatsApp
+      const result = ' '.repeat(Math.max(1, leftPadding)) + textStr + ' '.repeat(Math.max(1, rightPadding));
+      // Ensure result is exactly 'width' characters
+      if (result.length > width) {
+        return result.substring(0, width);
+      }
+      return result.padEnd(width, ' ');
+    };
+
+    // Helper to wrap text within a column width (ensures exact width for each line)
+    // Each column wraps independently - no column affects another
+    const wrapColumn = (text, width, align = 'left') => {
+      const textStr = String(text || '');
+      if (textStr.length <= width) {
+        if (align === 'center') {
+          return [centerInWidth(textStr, width)];
+        } else if (align === 'right') {
+          return [textStr.padStart(width, ' ')];
+        } else {
+          return [textStr.padEnd(width, ' ')];
+        }
+      }
+      // Wrap text if it exceeds width - each line is exactly 'width' characters
+      const lines = [];
+      let remaining = textStr;
+      while (remaining.length > 0) {
+        if (remaining.length <= width) {
+          if (align === 'center') {
+            lines.push(centerInWidth(remaining, width));
+          } else if (align === 'right') {
+            lines.push(remaining.padStart(width, ' '));
+          } else {
+            lines.push(remaining.padEnd(width, ' '));
+          }
+          break;
+        }
+        // Break at exact width for numbers, try word boundary for text
+        let breakPoint = width;
+        if (align === 'left' && remaining.includes(' ')) {
+          const spaceIndex = remaining.lastIndexOf(' ', width);
+          if (spaceIndex > width * 0.5) {
+            breakPoint = spaceIndex;
+          }
+        }
+        const line = remaining.substring(0, breakPoint);
+        // Ensure each line is exactly 'width' characters
+        if (align === 'center') {
+          lines.push(centerInWidth(line, width));
+        } else if (align === 'right') {
+          lines.push(line.padStart(width, ' '));
+        } else {
+          lines.push(line.padEnd(width, ' '));
+        }
+        remaining = remaining.substring(breakPoint).trim();
+      }
+      return lines;
+    };
+
+    // Helper to format and wrap numbers (always center-aligned, can wrap if needed)
+    // Returns array of lines, each exactly 'width' characters, perfectly centered
+    const formatNumberColumn = (value, width, isCurrency = false) => {
+      let text;
+      if (Number.isFinite(value)) {
+        if (isCurrency) {
+          text = formatCurrencySmart(value, state.currencyFormat);
+        } else {
+          text = value.toString();
+        }
+      } else {
+        text = 'null';
+      }
+      // Wrap if needed and return array of lines - each line is exactly 'width' characters, centered
+      return wrapColumn(text, width, 'center');
+    };
+
+    // Create a row with exact width - columns are completely independent
+    // Optimized for WhatsApp display
+    const createRow = (itemCol, qtyCol, rateCol, amountCol) => {
+      // Each column is already exactly its width, spacing uses pipe for better visibility
+      // Format: [Item]  |  [Qty]  |  [Rate]  |  [Amount]
+      const row = `${itemCol}${spacing}${qtyCol}${spacing}${rateCol}${spacing}${amountCol} `;
+      // Ensure row maintains exact width for alignment
+      if (row.length !== totalLineWidth) {
+
+      }
+      return ensureWidth(row, totalLineWidth);
+    };
+
+    // No longer using table format - items are displayed as bullet points
+
+    // Create empty column cells (exact width) - used when other columns wrap
+    const createEmptyCol = (width) => {
+      // Empty column is just spaces - exactly 'width' characters
+      return ' '.repeat(width);
+    };
+
+    const orderItems = order.items || [];
+
+    // Format items as bullet points instead of table
+    const formatItemAsPoint = (item, index) => {
+      const { rate, total, qty, unit } = calculateItemRateAndTotal(item);
+      const name = item.name || item.productName || `Item ${index + 1} `;
+
+      // Format: • Item Name - Qty x Rate = Amount
+      const qtyText = qty.toString();
+      const rateText = formatCurrencySmart(rate, state.currencyFormat);
+      const totalText = formatCurrencySmart(total, state.currencyFormat);
+
+      let itemLine = `• ${name} `;
+      if (qty > 0) {
+        itemLine += ` - ${qtyText}${unit ? ` ${unit}` : ''} x ${rateText} = ${totalText} `;
+      } else {
+        itemLine += ` - ${totalText} `;
+      }
+
+      return itemLine;
+    };
+
+    // Create items section as bullet points
+    let itemsSection;
+    if (orderItems.length > 0) {
+      const itemPoints = orderItems.map((item, index) => formatItemAsPoint(item, index));
+      itemsSection = itemPoints.join('\n');
+    } else {
+      itemsSection = '• No items';
+    }
+
+    const paymentModeLabel = withNull(getPaymentMethodLabel(order.paymentMethod, order.splitPaymentDetails));
+
+    const divider = '--------------------------------';
+
+    const lines = [
+      '             INVOICE',
+      '',
+      divider,
+      `Shop Name: ${storeName} `,
+      `Address: ${storeAddress} `,
+      `Phone: ${storePhoneDisplay} `,
+      `Date: ${invoiceDate} `,
+      divider,
+      `Customer Name: ${customerName} `,
+      `Customer Phone: ${customerPhoneDisplay} `,
+      divider,
+      'Items:',
+      '',
+      itemsSection,
+      divider,
+      `Subtotal: ${subtotalDisplay} `,
+      `Discount: ${discountDisplay} `,
+      `Tax(${taxPercentDisplay})     : ${taxAmountDisplay} `,
+      divider,
+      `Grand Total: ${totalDisplay} `,
+      `Payment Mode: ${paymentModeLabel} `,
+      'Thank you for shopping with us!',
+      divider,
+      '       Powered by Drag & Drop',
+      divider
+    ];
+
+    return lines.join('\n');
+  };
+
+  const handleShareInvoice = (order) => {
+    if (!order) return;
+
+    const customerMobile = sanitizeMobileNumber(order.customerMobile || '');
+
+    if (!customerMobile) {
+      if (window.showToast) {
+        window.showToast('No customer mobile number found for this invoice.', 'warning');
+      }
+      return;
+    }
+
+    const message = buildWhatsAppInvoiceMessage(order);
+    if (!message) {
+      if (window.showToast) {
+        window.showToast('Unable to prepare invoice details for sharing.', 'error');
+      }
+      return;
+    }
+
+    const targetNumber = customerMobile.length === 10 ? `91${customerMobile} ` : customerMobile;
+    const waUrl = `https://wa.me/${targetNumber}?text=${encodeURIComponent(message)}`;
+    window.open(waUrl, '_blank');
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">{getTranslation('salesOrderHistoryTitle', state.currentLanguage)}</h1>
+          <p className="text-sm text-gray-600 dark:text-slate-400 mt-1">{getTranslation('salesOrderHistorySubtitle', state.currentLanguage)}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="relative" ref={exportMenuRef}>
+            <button
+              onClick={() => setShowExportMenu(true)}
+              className="btn-secondary flex items-center justify-center gap-2 text-sm px-4 py-2 touch-manipulation dark:text-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:hover:bg-slate-600 w-full sm:w-auto"
+            >
+              <Download className="h-4 w-4" />
+              <span>Export</span>
+            </button>
+            {showExportMenu && (
+              <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setShowExportMenu(false)}>
+                <div
+                  className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200 border border-gray-100 dark:border-slate-700"
+                  onClick={e => e.stopPropagation()}
+                >
+                  <div className="p-4 border-b border-gray-100 dark:border-slate-800 flex items-center justify-between bg-gray-50/50 dark:bg-slate-800/50">
+                    <h3 className="font-semibold text-gray-900 dark:text-white">Export Orders</h3>
+                    <button
+                      onClick={() => setShowExportMenu(false)}
+                      className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 hover:text-gray-700 dark:text-slate-400 dark:hover:text-slate-200 transition-colors"
+                    >
+                      <X className="h-5 w-5" />
+                    </button>
+                  </div>
+                  <div className="p-2 space-y-1">
+                    <button
+                      onClick={() => {
+                        exportToCSV();
+                        setShowExportMenu(false);
+                      }}
+                      className="w-full text-left px-4 py-3.5 text-sm font-medium text-gray-700 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-800 active:bg-gray-100 dark:active:bg-slate-700 rounded-xl flex items-center gap-3 transition-colors group"
+                    >
+                      <div className="p-2 rounded-lg bg-green-50 text-green-600 group-hover:bg-green-100 dark:bg-green-500/10 dark:text-green-500 dark:group-hover:bg-green-500/20 transition-colors">
+                        <FileSpreadsheet className="h-5 w-5" />
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-gray-900 dark:text-white font-semibold">{getTranslation('exportAsCSV', state.currentLanguage)}</span>
+                        <span className="text-xs text-gray-500 dark:text-slate-400">{getTranslation('spreadsheetFormat', state.currentLanguage)}</span>
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => {
+                        exportToJSON();
+                        setShowExportMenu(false);
+                      }}
+                      className="w-full text-left px-4 py-3.5 text-sm font-medium text-gray-700 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-800 active:bg-gray-100 dark:active:bg-slate-700 rounded-xl flex items-center gap-3 transition-colors group"
+                    >
+                      <div className="p-2 rounded-lg bg-blue-50 text-blue-600 group-hover:bg-blue-100 dark:bg-blue-500/10 dark:text-blue-500 dark:group-hover:bg-blue-500/20 transition-colors">
+                        <FileJson className="h-5 w-5" />
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-gray-900 dark:text-white font-semibold">{getTranslation('exportAsJSON', state.currentLanguage)}</span>
+                        <span className="text-xs text-gray-500 dark:text-slate-400">{getTranslation('rawDataFormat', state.currentLanguage)}</span>
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => {
+                        exportToPDF();
+                        setShowExportMenu(false);
+                      }}
+                      className="w-full text-left px-4 py-3.5 text-sm font-medium text-gray-700 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-800 active:bg-gray-100 dark:active:bg-slate-700 rounded-xl flex items-center gap-3 transition-colors group"
+                    >
+                      <div className="p-2 rounded-lg bg-red-50 text-red-600 group-hover:bg-red-100 dark:bg-red-500/10 dark:text-red-500 dark:group-hover:bg-red-500/20 transition-colors">
+                        <Receipt className="h-5 w-5" />
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-gray-900 dark:text-white font-semibold">{getTranslation('exportAsPDF', state.currentLanguage)}</span>
+                        <span className="text-xs text-gray-500 dark:text-slate-400">{getTranslation('printableDocumentFormat', state.currentLanguage)}</span>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Search and Filters */}
+      <div className="card p-4 sm:p-6">
+        <div className="flex flex-col gap-3 sm:gap-4">
+          {/* Search */}
+          <div>
+            <label htmlFor="order-search" className="block text-xs sm:text-sm font-bold text-gray-700 dark:text-slate-300 mb-2">
+              {getTranslation('searchOrdersLabel', state.currentLanguage)}
+            </label>
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <Search className="h-5 w-5 text-gray-400 dark:text-slate-500" />
+              </div>
+              <input
+                id="order-search"
+                type="text"
+                placeholder={getTranslation('searchCustomersPlaceholder', state.currentLanguage)}
+                value={searchTerm}
+                onChange={(e) => {
+                  setSearchTerm(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="w-full pl-10 pr-4 py-3 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-sm font-medium text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-slate-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all shadow-sm outline-none"
+              />
+            </div>
+          </div>
+
+          {/* Filter Pills Row */}
+          <div className="flex flex-col lg:flex-row lg:items-end gap-4">
+            {/* Payment Method Filter */}
+            <div className="flex-1 flex flex-col">
+              <label className="block text-xs sm:text-sm font-bold text-gray-700 dark:text-slate-300 mb-2">{getTranslation('paymentMethod', state.currentLanguage)}</label>
+              <div className="inline-flex items-center rounded-full border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-800/80 p-1 shadow-sm w-full h-[44px] sm:h-[42px]">
+                {[
+                  { value: 'all', label: getTranslation('all', state.currentLanguage) || 'All' },
+                  { value: 'cash', label: getTranslation('cash', state.currentLanguage) },
+                  { value: 'online', label: getTranslation('online', state.currentLanguage) },
+                  { value: 'due', label: getTranslation('due', state.currentLanguage) }
+                ].map((option) => {
+                  const isActive = filterPaymentMethod === option.value;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => {
+                        setFilterPaymentMethod(option.value);
+                        setCurrentPage(1);
+                      }}
+                      className={`px-2 sm:px-3 py-2 sm:py-1.5 text-xs font-medium rounded-full transition flex-1 h-full flex items-center justify-center touch-manipulation ${isActive
+                        ? 'bg-gradient-to-r from-slate-900 to-slate-900 dark:from-white dark:to-white text-white dark:text-slate-900 shadow'
+                        : 'text-slate-600 dark:text-slate-300 active:bg-gray-100 dark:active:bg-slate-700'
+                        }`}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Date Range Filter */}
+            <div className="flex-1 flex flex-col">
+              <label className="block text-xs sm:text-sm font-bold text-gray-700 dark:text-slate-300 mb-2">{getTranslation('customRange', state.currentLanguage)}</label>
+              <div className="inline-flex items-center rounded-full border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-800/80 p-1 shadow-sm backdrop-blur-sm w-full h-[44px] sm:h-[42px]">
+                {[
+                  { value: 'today', label: getTranslation('today', state.currentLanguage) },
+                  { value: 'week', label: getTranslation('last7Days', state.currentLanguage) },
+                  { value: 'month', label: getTranslation('last30Days', state.currentLanguage) || '30 Days' },
+                  { value: 'custom', label: getTranslation('custom', state.currentLanguage) || 'Custom' }
+                ].map((option) => {
+                  const isActive = filterDateRange === option.value;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => {
+                        if (option.value === 'custom') {
+                          setTempCustomRange({ ...customDateRange });
+                          setShowCustomDateModal(true);
+                        } else {
+                          setFilterDateRange(option.value);
+                          setCurrentPage(1);
+                        }
+                      }}
+                      className={`px-3 py-1.5 text-xs font-medium rounded-full transition sm:text-sm flex-1 h-full flex items-center justify-center ${isActive
+                        ? 'bg-gradient-to-r from-slate-900 to-slate-900 dark:from-white dark:to-white text-white dark:text-slate-900 shadow'
+                        : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-indigo-400 hover:bg-white dark:hover:bg-slate-700'
+                        }`}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="relative bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700 transition-all hover:shadow-md">
+          <div className="absolute top-4 right-4 p-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-900/20 text-slate-900 dark:text-slate-100">
+            <ShoppingCart className="h-5 w-5" />
+          </div>
+          <div className="mt-2">
+            <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-1 tracking-wide uppercase">{getTranslation('totalOrders', state.currentLanguage)}</p>
+            <p className="text-2xl font-semibold text-gray-900 dark:text-white">{filteredOrders.length}</p>
+          </div>
+        </div>
+
+        <div className="relative bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700 transition-all hover:shadow-md">
+          <div className="absolute top-4 right-4 p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400">
+            <IndianRupee className="h-5 w-5" />
+          </div>
+          <div className="mt-2">
+            <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-1 tracking-wide uppercase">{getTranslation('totalSales', state.currentLanguage)}</p>
+            <p className="text-2xl font-semibold text-emerald-600" title={formatCurrency(totalSales)}>
+              {formatCurrencySmart(totalSales, state.currencyFormat)}
+            </p>
+          </div>
+        </div>
+
+        <div className="relative bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700 transition-all hover:shadow-md">
+          <div className="absolute top-4 right-4 p-2.5 rounded-xl bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400">
+            <IndianRupee className="h-5 w-5" />
+          </div>
+          <div className="mt-2">
+            <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-1 tracking-wide uppercase">{getTranslation('cashSales', state.currentLanguage)}</p>
+            <p className="text-2xl font-semibold text-green-600" title={formatCurrency(cashSales)}>
+              {formatCurrencySmart(cashSales, state.currencyFormat)}
+            </p>
+          </div>
+        </div>
+
+        <div className="relative bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700 transition-all hover:shadow-md">
+          <div className="absolute top-4 right-4 p-2.5 rounded-xl bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400">
+            <IndianRupee className="h-5 w-5" />
+          </div>
+          <div className="mt-2">
+            <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-1 tracking-wide uppercase">{getTranslation('onlineSales', state.currentLanguage)}</p>
+            <p className="text-2xl font-semibold text-blue-600" title={formatCurrency(onlineSales)}>
+              {formatCurrencySmart(onlineSales, state.currencyFormat)}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Orders Table - Desktop View */}
+      <div className="card hidden lg:block bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700">
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200 dark:divide-slate-700">
+            <thead className="bg-gray-50 dark:bg-slate-700/50">
+              <tr>
+                <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wide text-gray-700 dark:text-slate-300">{getTranslation('customer', state.currentLanguage)}</th>
+                <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wide text-gray-700 dark:text-slate-300">{getTranslation('mobile', state.currentLanguage) || 'Mobile'}</th>
+                <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wide text-gray-700 dark:text-slate-300">{getTranslation('paymentMethod', state.currentLanguage)}</th>
+                <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wide text-gray-700 dark:text-slate-300">{getTranslation('amount', state.currentLanguage)}</th>
+                <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wide text-gray-700 dark:text-slate-300">{getTranslation('date', state.currentLanguage) || 'Date'}</th>
+                <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wide text-gray-700 dark:text-slate-300">{getTranslation('actionsHeader', state.currentLanguage)}</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white dark:bg-slate-800 divide-y divide-gray-200 dark:divide-slate-700">
+              {paginatedOrders.length > 0 ? (
+                paginatedOrders.map((order) => (
+                  <tr key={order.id} className="hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors">
+                    <td className="px-4 py-3 text-sm text-gray-700 dark:text-slate-300 text-center">
+                      {order.customerName || 'Walk-in Customer'}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-700 dark:text-slate-300 text-center">
+                      {order.customerMobile || '-'}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-center">
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getPaymentMethodBadgeClass(order.paymentMethod)}`}>
+                        {order.paymentMethod || 'N/A'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-sm font-semibold text-emerald-600 text-center" title={formatCurrency(order.totalAmount || order.total)}>
+                      {formatCurrencySmart(order.totalAmount || order.total, state.currencyFormat)}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700 dark:text-slate-300 text-center">
+                      {formatDateTime(order.createdAt || order.date)}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-center">
+                      <div className="flex items-center justify-center gap-2">
+                        <button
+                          onClick={() => handleViewOrder(order)}
+                          className="p-2 text-slate-900 dark:text-slate-100 hover:text-indigo-700 dark:hover:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-lg transition-colors"
+                          title="View Details"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </button>
+                        {order.customerMobile && (
+                          <button
+                            onClick={() => handleShareInvoice(order)}
+                            className="p-2 text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:bg-green-50 dark:hover:bg-green-900/30 rounded-lg transition-colors"
+                            title="Share Invoice on WhatsApp"
+                          >
+                            <Share2 className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan="6" className="px-4 py-12 text-center">
+                    <Receipt className="h-12 w-12 text-gray-400 dark:text-slate-600 mx-auto mb-4" />
+                    <p className="text-gray-600 dark:text-slate-400">{getTranslation('noOrdersFound', state.currentLanguage)}</p>
+                    {searchTerm || filterPaymentMethod !== 'all' || filterDateRange !== 'all' ? (
+                      <p className="text-sm text-gray-500 dark:text-slate-500 mt-2">Try adjusting your filters</p>
+                    ) : null}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Orders Cards - Mobile/Tablet View */}
+      <div className="lg:hidden space-y-3">
+        {paginatedOrders.length > 0 ? (
+          paginatedOrders.map((order) => (
+            <div key={order.id} className="card p-4 hover:shadow-md transition-shadow bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700">
+              <div className="flex items-start justify-between mb-3">
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-base font-semibold text-gray-900 dark:text-white truncate">
+                    {order.customerName || 'Walk-in Customer'}
+                  </h3>
+                  {order.customerMobile && (
+                    <p className="text-sm text-gray-600 dark:text-slate-400 mt-1">{order.customerMobile}</p>
+                  )}
+                </div>
+                <div className="ml-3 flex items-center gap-2 flex-shrink-0">
+                  <button
+                    onClick={() => handleViewOrder(order)}
+                    className="p-2.5 text-slate-900 dark:text-slate-100 hover:text-indigo-700 dark:hover:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-lg transition-colors touch-manipulation"
+                    title="View Details"
+                  >
+                    <Eye className="h-5 w-5" />
+                  </button>
+                  {order.customerMobile && (
+                    <button
+                      onClick={() => handleShareInvoice(order)}
+                      className="p-2.5 text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:bg-green-50 dark:hover:bg-green-900/30 rounded-lg transition-colors touch-manipulation"
+                      title="Share Invoice on WhatsApp"
+                    >
+                      <Share2 className="h-5 w-5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 mb-3">
+                <div className="min-w-0">
+                  <p className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider mb-1 truncate">{getTranslation('amount', state.currentLanguage)}</p>
+                  <p className="text-xl font-black text-emerald-600 whitespace-nowrap overflow-x-auto scrollbar-hide" title={formatCurrency(order.totalAmount || order.total)}>
+                    {formatCurrencySmart(order.totalAmount || order.total, state.currencyFormat)}
+                  </p>
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider mb-1 truncate">{getTranslation('payment', state.currentLanguage)}</p>
+                  <div className="truncate">
+                    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-tight ${getPaymentMethodBadgeClass(order.paymentMethod)}`}>
+                      {getPaymentMethodLabel(order.paymentMethod, order.splitPaymentDetails) || 'N/A'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-gray-100 dark:border-slate-700 flex justify-between items-center">
+                <p className="text-[10px] font-medium text-gray-500 dark:text-slate-400 uppercase tracking-widest">{formatDateTime(order.createdAt || order.date)}</p>
+                <span className="text-[10px] font-bold text-slate-900 dark:text-slate-100">#{order.id.slice(-6).toUpperCase()}</span>
+              </div>
+            </div>
+          ))
+        ) : (
+          <div className="card p-12 text-center">
+            <Receipt className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+            <p className="text-gray-600 text-base">No orders found</p>
+            {searchTerm || filterPaymentMethod !== 'all' || filterDateRange !== 'all' ? (
+              <p className="text-sm text-gray-500 mt-2">Try adjusting your filters</p>
+            ) : null}
+          </div>
+        )}
+      </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-4 mt-4 sm:mt-6 px-3 sm:px-4 py-3 sm:py-4 bg-gray-50 dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700">
+          <div className="text-xs sm:text-sm text-gray-700 dark:text-slate-300 text-center sm:text-left">
+            Showing <span className="font-semibold">{startIndex + 1}</span> to{' '}
+            <span className="font-semibold">{Math.min(startIndex + itemsPerPage, filteredOrders.length)}</span> of{' '}
+            <span className="font-semibold">{filteredOrders.length}</span> orders
+          </div>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => handlePageChange(1)}
+              disabled={currentPage === 1}
+              className="p-2 sm:p-2 text-gray-500 dark:text-slate-400 bg-white dark:bg-slate-700 border border-gray-300 dark:border-slate-600 rounded-lg active:bg-gray-50 dark:active:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
+              aria-label="First page"
+            >
+              <ChevronsLeft className="h-4 w-4 sm:h-4 sm:w-4" />
+            </button>
+            <button
+              onClick={() => handlePageChange(currentPage - 1)}
+              disabled={currentPage === 1}
+              className="p-2 sm:p-2 text-gray-500 dark:text-slate-400 bg-white dark:bg-slate-700 border border-gray-300 dark:border-slate-600 rounded-lg active:bg-gray-50 dark:active:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
+              aria-label="Previous page"
+            >
+              <ChevronLeft className="h-4 w-4 sm:h-4 sm:w-4" />
+            </button>
+            {getPageNumbers().map((page, index) => (
+              <React.Fragment key={index}>
+                {page === 'ellipsis' ? (
+                  <span className="px-1 sm:px-2 text-gray-500 dark:text-slate-500 text-xs sm:text-sm">...</span>
+                ) : (
+                  <button
+                    onClick={() => handlePageChange(page)}
+                    className={`px-2.5 sm:px-3 py-2 text-xs sm:text-sm font-medium rounded-lg transition-colors touch-manipulation ${currentPage === page
+                      ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900'
+                      : 'bg-white dark:bg-slate-700 text-gray-700 dark:text-slate-300 border border-gray-300 dark:border-slate-600 active:bg-gray-50 dark:active:bg-slate-600'
+                      }`}
+                  >
+                    {page}
+                  </button>
+                )}
+              </React.Fragment>
+            ))}
+            <button
+              onClick={() => handlePageChange(currentPage + 1)}
+              disabled={currentPage === totalPages}
+              className="p-2 sm:p-2 text-gray-500 dark:text-slate-400 bg-white dark:bg-slate-700 border border-gray-300 dark:border-slate-600 rounded-lg active:bg-gray-50 dark:active:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
+              aria-label="Next page"
+            >
+              <ChevronRight className="h-4 w-4 sm:h-4 sm:w-4" />
+            </button>
+            <button
+              onClick={() => handlePageChange(totalPages)}
+              disabled={currentPage === totalPages}
+              className="p-2 sm:p-2 text-gray-500 dark:text-slate-400 bg-white dark:bg-slate-700 border border-gray-300 dark:border-slate-600 rounded-lg active:bg-gray-50 dark:active:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
+              aria-label="Last page"
+            >
+              <ChevronsRight className="h-4 w-4 sm:h-4 sm:w-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Order Details Modal */}
+      {showOrderDetails && selectedOrder && (
+        <div
+          className={`fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-0 sm:p-4 transition-opacity duration-300 ${isClosingOrderDetails ? 'opacity-0' : 'animate-fadeIn'}`}
+          onClick={handleCloseOrderDetails}
+        >
+          <style>{`
+            @keyframes slideUp {
+                from { transform: translateY(100%); }
+                to { transform: translateY(0); }
+            }
+            @keyframes slideDown {
+                from { transform: translateY(0); }
+                to { transform: translateY(100%); }
+            }
+          `}</style>
+          <div
+            key={isClosingOrderDetails ? 'closing' : 'opening'}
+            style={{ animation: `${isClosingOrderDetails ? 'slideDown' : 'slideUp'} 0.4s ease-out forwards` }}
+            className="bg-white dark:bg-slate-800 w-full h-[95vh] sm:h-auto sm:max-h-[85vh] sm:max-w-3xl rounded-none sm:rounded-2xl shadow-xl border dark:border-slate-700/60 flex flex-col overflow-hidden relative"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-4 sm:p-6 border-b border-gray-200 dark:border-slate-700 flex-shrink-0">
+              <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">{getTranslation('orderDetails', state.currentLanguage)}</h2>
+              <button
+                onClick={handleCloseOrderDetails}
+                className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 active:bg-gray-100 dark:active:bg-slate-700 rounded-lg transition-colors touch-manipulation"
+                aria-label="Close"
+              >
+                <X className="h-5 w-5 sm:h-5 sm:w-5" />
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1 p-4 sm:p-6">
+              <div className="space-y-4 sm:space-y-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+                  <div>
+                    <p className="text-xs sm:text-sm text-gray-600 dark:text-slate-400 mb-1">{getTranslation('date', state.currentLanguage) || 'Date'}</p>
+                    <p className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white break-words">{formatDateTime(selectedOrder.createdAt || selectedOrder.date)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs sm:text-sm text-gray-600 dark:text-slate-400 mb-1">{getTranslation('customerName', state.currentLanguage)}</p>
+                    <p className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white break-words">{selectedOrder.customerName || 'Walk-in Customer'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs sm:text-sm text-gray-600 dark:text-slate-400 mb-1">{getTranslation('mobile', state.currentLanguage) || 'Mobile'}</p>
+                    <p className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white break-words">{selectedOrder.customerMobile || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs sm:text-sm text-gray-600 dark:text-slate-400 mb-1">{getTranslation('paymentMethod', state.currentLanguage)}</p>
+                    <span className={`inline-flex items-center px-2.5 sm:px-3 py-1 rounded-full text-xs sm:text-sm font-medium ${getPaymentMethodBadgeClass(selectedOrder.paymentMethod)}`}>
+                      {getPaymentMethodLabel(selectedOrder.paymentMethod, selectedOrder.splitPaymentDetails) || 'N/A'}
+                    </span>
+                  </div>
+                  {(() => {
+                    const paymentMethod = (selectedOrder.paymentMethod || '').toString().toLowerCase().trim();
+                    if (paymentMethod === 'split') {
+                      const paymentDetails = selectedOrder.splitPaymentDetails || {};
+                      const cashAmount = Number(paymentDetails.cashAmount) || 0;
+                      const onlineAmount = Number(paymentDetails.onlineAmount) || 0;
+                      const creditAmount = Number(paymentDetails.creditAmount) || 0;
+                      const dueAmount = Number(paymentDetails.dueAmount) || 0;
+
+                      return (
+                        <div className="sm:col-span-2">
+                          <p className="text-xs sm:text-sm text-gray-600 dark:text-slate-400 mb-2">{getTranslation('paymentBreakdown', state.currentLanguage)}</p>
+                          <div className={`grid ${creditAmount > 0 ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3'} gap-2 sm:gap-3`}>
+                            {cashAmount > 0 && (
+                              <div className="bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-lg p-2.5 sm:p-3">
+                                <p className="text-xs text-green-700 dark:text-green-400 font-medium mb-1">Cash</p>
+                                <p className="text-base sm:text-lg font-bold text-green-900 dark:text-green-100 whitespace-nowrap overflow-x-auto scrollbar-hide" title={formatCurrency(cashAmount)}>
+                                  {formatCurrencySmart(cashAmount, state.currencyFormat)}
+                                </p>
+                              </div>
+                            )}
+                            {onlineAmount > 0 && (
+                              <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg p-2.5 sm:p-3">
+                                <p className="text-xs text-blue-700 dark:text-blue-400 font-medium mb-1">Online</p>
+                                <p className="text-base sm:text-lg font-bold text-blue-900 dark:text-blue-100 whitespace-nowrap overflow-x-auto scrollbar-hide" title={formatCurrency(onlineAmount)}>
+                                  {formatCurrencySmart(onlineAmount, state.currencyFormat)}
+                                </p>
+                              </div>
+                            )}
+                            {creditAmount > 0 && (
+                              <div className="bg-purple-50 dark:bg-purple-900/30 border border-purple-200 dark:border-purple-800 rounded-lg p-2.5 sm:p-3">
+                                <p className="text-xs text-purple-700 dark:text-purple-400 font-medium mb-1">Credit Used</p>
+                                <p className="text-base sm:text-lg font-bold text-purple-900 dark:text-purple-100 whitespace-nowrap overflow-x-auto scrollbar-hide" title={formatCurrency(creditAmount)}>
+                                  {formatCurrencySmart(creditAmount, state.currencyFormat)}
+                                </p>
+                              </div>
+                            )}
+                            {dueAmount > 0 && (
+                              <div className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-lg p-2.5 sm:p-3">
+                                <p className="text-xs text-red-700 dark:text-red-400 font-medium mb-1">Due</p>
+                                <p className="text-base sm:text-lg font-bold text-red-900 dark:text-red-100 whitespace-nowrap overflow-x-auto scrollbar-hide" title={formatCurrency(dueAmount)}>
+                                  {formatCurrencySmart(dueAmount, state.currencyFormat)}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
+                  <div className="sm:col-span-2">
+                    <p className="text-xs sm:text-sm text-gray-600 dark:text-slate-400 mb-1">{getTranslation('totalAmount', state.currentLanguage)}</p>
+                    <p className="text-xl sm:text-2xl font-bold text-emerald-600 whitespace-nowrap overflow-x-auto scrollbar-hide" title={formatCurrency(selectedOrder.totalAmount || selectedOrder.total)}>
+                      {formatCurrencySmart(selectedOrder.totalAmount || selectedOrder.total, state.currencyFormat)}
+                    </p>
+                  </div>
+                </div>
+
+                {selectedOrder.items && selectedOrder.items.length > 0 && (
+                  <div>
+                    <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white mb-3 sm:mb-4">{getTranslation('orderItems', state.currentLanguage)}</h3>
+                    {/* Desktop Table View */}
+                    <div className="hidden sm:block overflow-x-auto">
+                      <table className="min-w-full divide-y divide-gray-200 dark:divide-slate-700">
+                        <thead className="bg-gray-50 dark:bg-slate-700/50">
+                          <tr>
+                            <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-700 dark:text-slate-300">{getTranslation('product', state.currentLanguage) || 'Product'}</th>
+                            <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-gray-700 dark:text-slate-300">{getTranslation('quantityHeader', state.currentLanguage)}</th>
+                            <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-gray-700 dark:text-slate-300">{getTranslation('priceHeader', state.currentLanguage) || 'Price'}</th>
+                            <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-gray-700 dark:text-slate-300">{getTranslation('totalHeader', state.currentLanguage)}</th>
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white dark:bg-slate-800 divide-y divide-gray-200 dark:divide-slate-700">
+                          {selectedOrder.items.map((item, index) => {
+                            const { rate, total, qty, unit } = calculateItemRateAndTotal(item);
+                            return (
+                              <tr key={index}>
+                                <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">{item.name || 'N/A'}</td>
+                                <td className="px-4 py-3 text-sm text-gray-700 dark:text-slate-300 text-right">
+                                  {qty} {unit}
+                                </td>
+                                <td className="px-4 py-3 text-sm text-gray-700 dark:text-slate-300 text-right" title={formatCurrency(rate)}>
+                                  {formatCurrencySmart(rate, state.currencyFormat)}
+                                </td>
+                                <td className="px-4 py-3 text-sm font-semibold text-gray-900 dark:text-white text-right" title={formatCurrency(total)}>
+                                  {formatCurrencySmart(total, state.currencyFormat)}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                    {/* Mobile Card View */}
+                    <div className="sm:hidden space-y-3">
+                      {selectedOrder.items.map((item, index) => {
+                        const { rate, total, qty, unit } = calculateItemRateAndTotal(item);
+                        return (
+                          <div key={index} className="bg-gray-50 dark:bg-slate-700/50 rounded-lg p-3 border border-gray-200 dark:border-slate-700">
+                            <div className="flex items-start justify-between mb-2">
+                              <p className="text-sm font-semibold text-gray-900 dark:text-white flex-1 pr-2">{item.name || 'N/A'}</p>
+                              <p className="text-sm font-bold text-gray-900 dark:text-white" title={formatCurrency(total)}>{formatCurrencySmart(total, state.currencyFormat)}</p>
+                            </div>
+                            <div className="flex items-center justify-between text-xs text-gray-600 dark:text-slate-400">
+                              <span>{qty} {unit}</span>
+                              <span>@ <span title={formatCurrency(rate)}>{formatCurrencySmart(rate, state.currencyFormat)}</span></span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Custom Date Modal */}
+      {showCustomDateModal && (
+        <div className="fixed inset-0 z-[1400] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white dark:bg-slate-800 w-full max-w-sm rounded-2xl shadow-xl overflow-hidden animate-slideUp">
+            <div className="flex items-center justify-between p-4 border-b border-gray-100 dark:border-slate-700">
+              <h3 className="font-bold text-lg text-gray-900 dark:text-white flex items-center gap-2">
+                <CalendarRange className="h-5 w-5 text-slate-900" />
+                {getTranslation('customRange', state.currentLanguage)}
+              </h3>
+              <button
+                onClick={() => setShowCustomDateModal(false)}
+                className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-slate-300 transition-colors"
+              >
+                <XCircle className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">{getTranslation('startDate', state.currentLanguage)}</label>
+                <input
+                  type="date"
+                  value={tempCustomRange.start}
+                  onChange={e => setTempCustomRange({ ...tempCustomRange, start: e.target.value })}
+                  className="w-full px-4 py-2 border border-gray-200 dark:border-slate-700 rounded-xl dark:bg-slate-900 dark:text-white focus:ring-2 focus:ring-slate-900 outline-none transition-all"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">{getTranslation('endDate', state.currentLanguage)}</label>
+                <input
+                  type="date"
+                  value={tempCustomRange.end}
+                  onChange={e => setTempCustomRange({ ...tempCustomRange, end: e.target.value })}
+                  className="w-full px-4 py-2 border border-gray-200 dark:border-slate-700 rounded-xl dark:bg-slate-900 dark:text-white focus:ring-2 focus:ring-slate-900 outline-none transition-all"
+                />
+              </div>
+
+              <div className="pt-2 flex flex-col gap-2">
+                <button
+                  onClick={() => {
+                    setCustomDateRange(tempCustomRange);
+                    setFilterDateRange('custom');
+                    setShowCustomDateModal(false);
+                    setCurrentPage(1);
+                  }}
+                  className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl transition-all shadow-lg"
+                >
+                  {getTranslation('applyRange', state.currentLanguage)}
+                </button>
+                <button
+                  onClick={() => setShowCustomDateModal(false)}
+                  className="w-full py-3 text-gray-500 hover:text-gray-700 font-medium transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default SalesOrderHistory;
