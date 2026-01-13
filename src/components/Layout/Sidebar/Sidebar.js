@@ -21,7 +21,8 @@ import {
   Share2,
   Palette,
   FileText,
-  BoxSelect
+  BoxSelect,
+  Zap
 } from 'lucide-react';
 import { getTranslation } from '../../../utils/translations';
 import { isModuleUnlocked, getUpgradeMessage } from '../../../utils/planUtils';
@@ -76,7 +77,7 @@ const Sidebar = React.memo(({ onClose, isMinimized = false }) => {
     { name: 'customers', href: 'customers', icon: Users },
     { name: 'suppliers', href: 'suppliers', icon: Warehouse },
     { name: 'products', href: 'products', icon: Package },
-    { name: 'dProducts', href: 'dProducts', icon: BoxSelect },
+    { name: 'dProducts', href: 'dProducts', icon: Zap },
 
     { name: 'billing', href: 'billing', icon: CreditCard },
     { name: 'salesOrderHistory', href: 'salesOrderHistory', icon: History },
