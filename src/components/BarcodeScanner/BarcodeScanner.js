@@ -113,7 +113,7 @@ const BarcodeScanner = React.forwardRef(({ onScan, onClose, inline = false, keep
 
   const checkTorchSupport = (attempts = 0) => {
     try {
-      if (scannerRef.current) {
+      if (scannerRef.current && typeof scannerRef.current.getRunningTrack === 'function') {
         const track = scannerRef.current.getRunningTrack();
         if (track) {
           const capabilities = track.getCapabilities();
@@ -135,9 +135,11 @@ const BarcodeScanner = React.forwardRef(({ onScan, onClose, inline = false, keep
       // Some devices take time to expose capabilities
       setTimeout(() => {
         try {
-          const track = scannerRef.current?.getRunningTrack();
-          if (track?.getCapabilities()?.torch !== undefined) {
-            setIsTorchSupported(true);
+          if (scannerRef.current && typeof scannerRef.current.getRunningTrack === 'function') {
+            const track = scannerRef.current.getRunningTrack();
+            if (track?.getCapabilities()?.torch !== undefined) {
+              setIsTorchSupported(true);
+            }
           }
         } catch (e) { }
       }, 3000);
@@ -343,13 +345,15 @@ const BarcodeScanner = React.forwardRef(({ onScan, onClose, inline = false, keep
     if (!scannerRef.current || !isRunningRef.current || !isTorchSupported) return;
 
     try {
-      const track = scannerRef.current.getRunningTrack();
-      if (track) {
-        const newState = !isTorchOn;
-        await track.applyConstraints({
-          advanced: [{ torch: newState }]
-        });
-        setIsTorchOn(newState);
+      if (typeof scannerRef.current.getRunningTrack === 'function') {
+        const track = scannerRef.current.getRunningTrack();
+        if (track) {
+          const newState = !isTorchOn;
+          await track.applyConstraints({
+            advanced: [{ torch: newState }]
+          });
+          setIsTorchOn(newState);
+        }
       }
     } catch (err) {
       console.error("Error toggling torch:", err);
