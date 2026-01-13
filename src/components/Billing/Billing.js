@@ -25,7 +25,8 @@ import {
   RefreshCw,
   Usb,
   Plus,
-  Minus
+  Minus,
+  Zap
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import { nanoid } from 'nanoid';
@@ -7244,7 +7245,7 @@ const Billing = () => {
           {/* D-Product Input Section */}
           <div className="card mb-4 p-4 border-l-4 border-blue-500 bg-blue-50 dark:bg-slate-800 dark:border-blue-400">
             <h4 className="font-semibold text-blue-800 dark:text-blue-300 mb-3 flex items-center gap-2">
-              <Plus className="w-4 h-4" /> Add Direct Product (D-Product)
+              <Zap className="w-4 h-4" /> Add Direct Product (D-Product)
             </h4>
             <div className="flex gap-3">
               <div className="flex-[2]">
@@ -7255,7 +7256,6 @@ const Billing = () => {
                   value={dProductInput}
                   onChange={(e) => setDProductInput(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleAddDProduct()}
-                  autoFocus
                 />
               </div>
               <button
