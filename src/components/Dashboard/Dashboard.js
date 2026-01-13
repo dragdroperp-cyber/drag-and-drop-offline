@@ -40,7 +40,8 @@ import {
   Percent,
   PlayCircle,
   Wifi,
-  Gift
+  Gift,
+  WifiOff
 } from 'lucide-react';
 import { getTranslation } from '../../utils/translations';
 import { sanitizeMobileNumber } from '../../utils/validation';
@@ -51,6 +52,7 @@ import { getSellerIdFromAuth } from '../../utils/api';
 import { getAllItems, addItem, STORES } from '../../utils/indexedDB';
 import { getPathForView } from '../../utils/navigation';
 import SellerRegistrationModal from './SellerRegistrationModal';
+import { APP_VERSION } from '../../utils/version';
 
 // Staff data loading helper
 const loadStaffData = async (dispatch, permissions) => {
@@ -138,6 +140,12 @@ const getStatTheme = (key) => STAT_THEMES[key] || STAT_THEMES.slate;
 const Dashboard = () => {
   const { state, dispatch } = useApp();
   const navigate = useNavigate();
+
+  const showToast = useCallback((message, type = 'info', duration = 4000) => {
+    if (typeof window !== 'undefined' && typeof window.showToast === 'function') {
+      window.showToast(message, type, duration);
+    }
+  }, []);
   const [timeRange, setTimeRange] = useState('today');
   const [saleMode, setSaleMode] = useState('normal'); // 'normal' | 'direct'
   const [selectedAlert, setSelectedAlert] = useState(null);
@@ -162,10 +170,98 @@ const Dashboard = () => {
     start: new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().split('T')[0],
     end: new Date().toISOString().split('T')[0]
   });
+
   const [tempCustomRange, setTempCustomRange] = useState({ ...customDateRange });
   const [currentSlide, setCurrentSlide] = useState(0);
   const [touchStart, setTouchStart] = useState(null);
   const [touchEnd, setTouchEnd] = useState(null);
+
+  // Offline Download State
+  const [showOfflineDownloadModal, setShowOfflineDownloadModal] = useState(false);
+  const [isDownloadingResources, setIsDownloadingResources] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState(0);
+
+  // Check offline cache status on mount
+  useEffect(() => {
+    const checkOfflineStatus = async () => {
+      // Check if user has already skipped this prompts
+      const isSkipped = localStorage.getItem('offline_prompt_skipped') === 'true';
+      if (isSkipped) return;
+
+      try {
+        const cacheName = `grocery-studio-runtime-${APP_VERSION}`;
+        if ('caches' in window) {
+          const cache = await caches.open(cacheName);
+          const keys = await cache.keys();
+
+          // If cache is empty or has very few items, assume not fully downloaded
+          // We define "few" as less than 10 essential items
+          if (keys.length < 10) {
+            setShowOfflineDownloadModal(true);
+          }
+        }
+      } catch (error) {
+        console.error('Error checking cache status:', error);
+      }
+    };
+
+    // Delay check slightly to not block initial render
+    const timer = setTimeout(checkOfflineStatus, 2000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Listen for Service Worker messages
+  useEffect(() => {
+    const handleServiceWorkerMessage = (event) => {
+      const { type, cached, total } = event.data || {};
+
+      if (type === 'CACHE_COMPLETE') {
+        setDownloadProgress(100);
+        setTimeout(() => {
+          setIsDownloadingResources(false);
+          setShowOfflineDownloadModal(false);
+          showToast('Offline resources downloaded successfully!', 'success');
+        }, 1000);
+      }
+    };
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', handleServiceWorkerMessage);
+    }
+
+    return () => {
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.removeEventListener('message', handleServiceWorkerMessage);
+      }
+    };
+  }, [showToast]);
+
+  const handleDownloadOfflineResources = () => {
+    setIsDownloadingResources(true);
+    setDownloadProgress(10); // Start progress
+
+    if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+      navigator.serviceWorker.controller.postMessage({ type: 'CACHE_RESOURCES' });
+      // Simulate progress while waiting for real completion
+      const interval = setInterval(() => {
+        setDownloadProgress(prev => {
+          if (prev >= 90) {
+            clearInterval(interval);
+            return 90;
+          }
+          return prev + 10;
+        });
+      }, 500);
+    } else {
+      setIsDownloadingResources(false);
+      showToast('Service Worker not active. Cannot download resources.', 'error');
+    }
+  };
+
+  const handleSkipOfflineDownload = () => {
+    localStorage.setItem('offline_prompt_skipped', 'true');
+    setShowOfflineDownloadModal(false);
+  };
 
   // Minimum swipe distance (in px)
   const minSwipeDistance = 50;
@@ -478,11 +574,7 @@ const Dashboard = () => {
     return formatCurrencySmart(value, state.currencyFormat);
   };
 
-  const showToast = useCallback((message, type = 'info', duration = 4000) => {
-    if (typeof window !== 'undefined' && typeof window.showToast === 'function') {
-      window.showToast(message, type, duration);
-    }
-  }, []);
+
 
   const goToView = useCallback((view) => {
     dispatch({ type: ActionTypes.SET_CURRENT_VIEW, payload: view });
@@ -2118,6 +2210,59 @@ const Dashboard = () => {
               >
                 {getTranslation('close', state.currentLanguage)}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Offline Download Modal */}
+      {showOfflineDownloadModal && (
+        <div className="fixed inset-0 z-[1300] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md p-6 border border-gray-200 dark:border-slate-700 animate-in fade-in zoom-in duration-300">
+            <div className="flex flex-col items-center text-center">
+              <div className="w-16 h-16 bg-blue-50 dark:bg-blue-900/30 rounded-full flex items-center justify-center mb-4">
+                <WifiOff className="h-8 w-8 text-blue-600 dark:text-blue-400" />
+              </div>
+
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
+                Download for Offline Use
+              </h3>
+
+              <p className="text-sm text-gray-600 dark:text-slate-400 mb-6 px-4">
+                Download all necessary files to keep using Grocery Studio seamlessly even when you don't have an internet connection.
+              </p>
+
+              {isDownloadingResources ? (
+                <div className="w-full space-y-3 mb-6">
+                  <div className="flex justify-between text-xs font-medium text-gray-500 dark:text-slate-400">
+                    <span>Downloading resources...</span>
+                    <span>{downloadProgress}%</span>
+                  </div>
+                  <div className="w-full bg-gray-200 dark:bg-slate-700 rounded-full h-2.5 overflow-hidden">
+                    <div
+                      className="bg-blue-600 h-2.5 rounded-full transition-all duration-300 ease-out"
+                      style={{ width: `${downloadProgress}%` }}
+                    ></div>
+                  </div>
+                  <p className="text-xs text-center text-gray-400">Please wait while we cache essential files.</p>
+                </div>
+              ) : (
+                <div className="flex gap-3 w-full">
+                  <button
+                    onClick={handleSkipOfflineDownload}
+                    className="flex-1 px-4 py-2.5 rounded-xl border border-gray-300 dark:border-slate-600 text-gray-700 dark:text-slate-300 font-medium hover:bg-gray-50 dark:hover:bg-slate-700 transition"
+                  >
+                    Skip
+                  </button>
+                  <button
+                    onClick={handleDownloadOfflineResources}
+                    className="flex-1 px-4 py-2.5 rounded-xl bg-blue-600 text-white font-medium hover:bg-blue-700 shadow-lg shadow-blue-500/20 transition flex items-center justify-center gap-2"
+                  >
+                    <Download className="h-4 w-4" />
+                    Download
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
