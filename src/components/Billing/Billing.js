@@ -914,7 +914,49 @@ const Billing = () => {
       // Product found via barcode scan - proceed to add it
       handleAddProduct(product); // Open quantity modal or auto-add
     } else {
-      showToast(`Product with barcode ${barcode} not found.`, 'error');
+      // Try to find a matching D-Product (Direct Product)
+      // D-Products are identified if the barcode starts with their pCode
+      let dProductMatch = null;
+      let extractedPrice = 0;
+
+      if (state.dProducts && state.dProducts.length > 0) {
+        // Sort dProducts by pCode length descending to ensure we match the longest code first
+        const sortedDProducts = [...state.dProducts].sort((a, b) => (b.pCode || '').length - (a.pCode || '').length);
+
+        for (const dp of sortedDProducts) {
+          if (dp.pCode && barcode.toLowerCase().startsWith(dp.pCode.toLowerCase())) {
+            const priceStr = barcode.substring(dp.pCode.length);
+            const price = parseFloat(priceStr);
+            if (!isNaN(price) && price > 0) {
+              dProductMatch = dp;
+              extractedPrice = price;
+              break;
+            }
+          }
+        }
+      }
+
+      if (dProductMatch) {
+        // Found a D-Product match
+        // Create a unique item derived from this D-Product with the specific price
+        const dProductItem = {
+          ...dProductMatch,
+          id: `${dProductMatch.id}_${extractedPrice}`, // Unique ID for this price point
+          name: `${dProductMatch.productName} - ₹${extractedPrice}`, // Unique name
+          price: extractedPrice,
+          sellingPrice: extractedPrice,
+          gstPercent: dProductMatch.taxPercentage || 0, // Map taxPercentage to gstPercent
+          isDProduct: true,
+          quantity: 1,
+          unit: dProductMatch.unit || 'PCS'
+        };
+
+        // Add to bill directly, bypassing stock check limitations in handleAddProduct
+        handleAddWithQuantity(dProductItem, 1, dProductItem.unit);
+        showToast(`Added ${dProductItem.productName} for ₹${extractedPrice}`, 'success');
+      } else {
+        showToast(`Product with barcode ${barcode} not found.`, 'error');
+      }
     }
     setBarcodeInput('');
   };
@@ -1323,7 +1365,10 @@ const Billing = () => {
         }
 
         // Check stock availability with merged quantity (using existing unit)
-        const stockCheck = checkStockAvailability(product, finalQuantity, existingUnit);
+        // Skip stock check for D-Products
+        const stockCheck = product.isDProduct
+          ? { available: true, baseUnit: existingUnit, stockDisplay: 'Unlimited' }
+          : checkStockAvailability(product, finalQuantity, existingUnit);
 
         if (!stockCheck.available) {
           // Store error for display after state update
@@ -1334,13 +1379,30 @@ const Billing = () => {
           return prev;
         }
 
-        // Update existing item with merged quantity (buildBillItem will apply smart unit conversion)
-        const updatedItem = buildBillItem(product, finalQuantity, existingUnit, stockCheck.baseUnit);
+        // Update existing item with merged quantity
+        let updatedItem;
+        if (product.isDProduct) {
+          const price = existingItem.price || product.price || 0;
+          const totalSellingPrice = price * finalQuantity;
+          const gstAmount = (totalSellingPrice * (existingItem.gstPercent || product.gstPercent || 0)) / 100;
+          updatedItem = {
+            ...existingItem,
+            quantity: finalQuantity,
+            total: totalSellingPrice + gstAmount,
+            totalSellingPrice: totalSellingPrice,
+            gstAmount: Math.floor(gstAmount * 100) / 100
+          };
+        } else {
+          updatedItem = buildBillItem(product, finalQuantity, existingUnit, stockCheck.baseUnit);
+        }
         return prev.map((item, idx) => idx === existingItemIndex ? updatedItem : item);
       }
 
       // Product doesn't exist - check stock and add new item
-      const stockCheck = checkStockAvailability(product, sanitizedQuantity, unit);
+      // Skip stock check for D-Products
+      const stockCheck = product.isDProduct
+        ? { available: true, baseUnit: unit, stockDisplay: 'Unlimited' }
+        : checkStockAvailability(product, sanitizedQuantity, unit);
 
       if (!stockCheck.available) {
         // Store error for display after state update
@@ -1351,8 +1413,24 @@ const Billing = () => {
         return prev;
       }
 
-      // Add new item (buildBillItem will apply smart unit conversion)
-      const newItem = buildBillItem(product, sanitizedQuantity, unit, stockCheck.baseUnit, fixedAmount);
+      // Add new item
+      let newItem;
+      if (product.isDProduct) {
+        const price = product.price || 0;
+        const totalSellingPrice = price * sanitizedQuantity;
+        const gstAmount = (totalSellingPrice * (product.gstPercent || 0)) / 100;
+        newItem = {
+          ...product,
+          quantity: sanitizedQuantity,
+          unit: unit,
+          total: totalSellingPrice + gstAmount,
+          totalSellingPrice: totalSellingPrice,
+          gstAmount: Math.floor(gstAmount * 100) / 100,
+          originalQuantity: { quantity: sanitizedQuantity, unit: unit }
+        };
+      } else {
+        newItem = buildBillItem(product, sanitizedQuantity, unit, stockCheck.baseUnit, fixedAmount);
+      }
       return [...prev, newItem];
     });
 
