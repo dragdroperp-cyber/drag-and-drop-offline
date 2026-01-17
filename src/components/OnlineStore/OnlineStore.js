@@ -176,7 +176,7 @@ const OnlineStore = () => {
                             onClick={() => {
                                 if (storeData?.storeSlug) {
                                     const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-                                    const baseUrl = isLocal ? 'http://localhost:5173' : 'https://store.draganddrop.in';
+                                    const baseUrl = isLocal ? 'http://localhost:5173' : 'https://ecommercegrocerystudio-1.onrender.com';
                                     window.open(`${baseUrl}/${storeData.storeSlug}`, '_blank');
                                 }
                             }}
@@ -189,7 +189,7 @@ const OnlineStore = () => {
                             onClick={() => {
                                 if (storeData?.storeSlug) {
                                     const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-                                    const baseUrl = isLocal ? 'http://localhost:5173' : 'https://store.draganddrop.in';
+                                    const baseUrl = isLocal ? 'http://localhost:5173' : 'https://ecommercegrocerystudio-1.onrender.com';
                                     const url = `${baseUrl}/${storeData.storeSlug}`;
                                     navigator.clipboard.writeText(url);
                                     if (window.showToast) window.showToast('Store link copied to clipboard!', 'success');
@@ -480,7 +480,7 @@ const StoreSetupWizard = ({ onComplete, onCancel }) => {
                                 {fieldErrors.storeSlug ? (
                                     <p className="text-[10px] text-red-600 dark:text-red-400 mt-1 font-semibold">{fieldErrors.storeSlug}</p>
                                 ) : (
-                                    <p className="text-[10px] text-slate-500 mt-1">Visit at: store.draganddrop.in/{formData.storeSlug || '...'}</p>
+                                    <p className="text-[10px] text-slate-500 mt-1">Visit at: ecommercegrocerystudio-1.onrender.com/{formData.storeSlug || '...'}</p>
                                 )}
                             </div>
                             <div>
