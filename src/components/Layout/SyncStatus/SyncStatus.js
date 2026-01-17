@@ -1,0 +1,961 @@
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { useApp, registerSyncStatusCallback, unregisterSyncStatusCallback, isCurrentPlanExpired } from '../../../context/AppContext';
+import { Cloud, CloudOff, CheckCircle2, Loader2, Info, X, Database, Package, Users, ShoppingCart, Receipt, CreditCard, Truck, IndianRupee, RotateCcw, AlertTriangle, Briefcase, FileText, BoxSelect } from 'lucide-react';
+import syncService from '../../../services/syncService';
+import { getAllItems, STORES } from '../../../utils/indexedDB';
+import { getTranslation } from '../../../utils/translations';
+
+const SyncStatus = ({ isOpen, onToggle }) => {
+  const { state } = useApp();
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [forceUpdate, setForceUpdate] = useState(0);
+  const [indexedDBData, setIndexedDBData] = useState({
+    products: [],
+    customers: [],
+    orders: [],
+    transactions: [],
+    purchaseOrders: [],
+    productBatches: [],
+    categories: [],
+    refunds: [],
+    expenses: [],
+    planOrders: [],
+    customerTransactions: [],
+    suppliers: [],
+    supplierTransactions: [],
+    dProducts: []
+  });
+  const syncListenerRef = useRef(null);
+  const [internalShowDetails, setInternalShowDetails] = useState(false);
+
+  // Determine if controlled or uncontrolled
+  const isControlled = isOpen !== undefined;
+  const showDetails = isControlled ? isOpen : internalShowDetails;
+
+  const [isClosing, setIsClosing] = useState(false);
+
+  const handleClose = useCallback(() => {
+    setIsClosing(true);
+    setTimeout(() => {
+      if (isControlled) {
+        if (onToggle) onToggle(false);
+      } else {
+        setInternalShowDetails(false);
+      }
+      setIsClosing(false);
+    }, 400);
+  }, [isControlled, onToggle]);
+
+  const handleToggle = useCallback((value) => {
+    const newValue = value !== undefined ? value : !showDetails;
+    if (newValue === false) {
+      handleClose();
+    } else {
+      if (isControlled) {
+        if (onToggle) onToggle(true);
+      } else {
+        setInternalShowDetails(true);
+      }
+    }
+  }, [isControlled, onToggle, showDetails, handleClose]);
+
+  const detailsRef = useRef(null);
+
+  // Update online status
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  // Load data from IndexedDB to include deleted items
+  useEffect(() => {
+    const loadIndexedDBData = async () => {
+      try {
+        const [products, customers, orders, transactions, purchaseOrders, productBatches, categories, refunds, indexedDBExpenses, planOrders, customerTransactions, suppliers, supplierTransactions, dProducts] = await Promise.all([
+          getAllItems(STORES.products).catch(() => []),
+          getAllItems(STORES.customers).catch(() => []),
+          getAllItems(STORES.orders).catch(() => []),
+          getAllItems(STORES.transactions).catch(() => []),
+          getAllItems(STORES.purchaseOrders).catch(() => []),
+          getAllItems(STORES.productBatches).catch(() => []),
+          getAllItems(STORES.categories).catch(() => []),
+          getAllItems(STORES.refunds).catch(() => []),
+          getAllItems(STORES.expenses).catch(() => []),
+          getAllItems(STORES.planOrders).catch(() => []),
+          getAllItems(STORES.customerTransactions).catch(() => []),
+          getAllItems(STORES.suppliers).catch(() => []),
+          getAllItems(STORES.supplierTransactions).catch(() => []),
+          getAllItems(STORES.dProducts).catch(() => [])
+        ]);
+
+        setIndexedDBData({
+          products: products || [],
+          customers: customers || [],
+          orders: orders || [],
+          transactions: transactions || [],
+          purchaseOrders: purchaseOrders || [],
+          productBatches: productBatches || [],
+          categories: categories || [],
+          refunds: refunds || [],
+          expenses: indexedDBExpenses || [],
+          planOrders: planOrders || [],
+          customerTransactions: customerTransactions || [],
+          suppliers: suppliers || [],
+          supplierTransactions: supplierTransactions || [],
+          dProducts: dProducts || []
+        });
+      } catch (error) {
+
+      }
+    };
+
+    loadIndexedDBData();
+  }, [forceUpdate]); // Reload when forceUpdate changes
+
+  // Force re-render periodically to catch sync updates
+  useEffect(() => {
+    // Check sync status every 5 seconds for more responsive status updates
+    const interval = setInterval(() => {
+      setForceUpdate(prev => prev + 1);
+    }, 5000); // 5 seconds
+
+    return () => clearInterval(interval);
+  }, []);
+
+  // Callback to trigger sync status update instantly
+  const triggerSyncUpdate = useCallback(() => {
+    setForceUpdate(prev => prev + 1);
+  }, []);
+
+  // Register callback for instant sync status updates when data changes
+  useEffect(() => {
+    const unregister = registerSyncStatusCallback(triggerSyncUpdate);
+    return unregister;
+  }, [triggerSyncUpdate]);
+
+  // Also listen to storage events (when IndexedDB updates from other tabs/windows)
+  useEffect(() => {
+    const handleStorageChange = () => {
+      setForceUpdate(prev => prev + 1);
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
+
+  // Calculate sync status for all stores
+  // Use IndexedDB data to include deleted items that need sync
+  const syncStatus = useMemo(() => {
+    // Helper to merge state (active items) with IndexedDB (deleted items)
+    // We prefer state for active items as it's updated instantly by reducers
+    const getMergedItems = (stateItems, idbItems) => {
+      const itemsMap = new Map();
+      const localToMongoMap = new Map();
+
+      // Step 1: Add all items from IndexedDB as the baseline (contains ALL data)
+      if (Array.isArray(idbItems)) {
+        idbItems.forEach(item => {
+          const id = item.id || item._id;
+          if (id) {
+            const idStr = String(id);
+            // Track if this item has a localId (meaning it was swapped from a temp ID)
+            if (item.localId) {
+              localToMongoMap.set(String(item.localId), idStr);
+            }
+            itemsMap.set(idStr, item);
+          }
+        });
+      }
+
+      // Step 2: Override with items from state (contains "hot" updates from reducers)
+      if (Array.isArray(stateItems)) {
+        stateItems.forEach(item => {
+          const id = item.id || item._id;
+          if (id) {
+            const idStr = String(id);
+
+            // Check if this item has a localId version coming from state too
+            if (item.localId) {
+              localToMongoMap.set(String(item.localId), idStr);
+            }
+
+            // CRITICAL FIX: Check if this item (by current ID or _id) is actually 
+            // an old temp ID that has already been synced and swapped.
+            if (localToMongoMap.has(idStr)) {
+              // This item exists in the map with a new Mongo ID. 
+              // The current item (idStr) is stale. Skip it to prevent duplication.
+              return;
+            }
+
+            // State items are fresher (optimistic updates), so they take precedence
+            itemsMap.set(idStr, item);
+          }
+        });
+      }
+
+      // Step 3: Final pass to remove any items that are now known to be stale temp IDs
+      // (Handles cases where temp ID was added to itemsMap before its mongoId version)
+      for (const [localId, mongoId] of localToMongoMap.entries()) {
+        if (localId !== mongoId && itemsMap.has(localId) && itemsMap.has(mongoId)) {
+          itemsMap.delete(localId);
+        }
+      }
+
+      return Array.from(itemsMap.values());
+    };
+
+    const products = getMergedItems(state.products, indexedDBData.products);
+    const customers = getMergedItems(state.customers, indexedDBData.customers);
+    const orders = getMergedItems(state.orders, indexedDBData.orders);
+    const transactions = getMergedItems(state.transactions, indexedDBData.transactions);
+    const purchaseOrders = getMergedItems(state.purchaseOrders, indexedDBData.purchaseOrders);
+    const categories = getMergedItems(state.categories, indexedDBData.categories);
+    const refunds = Array.isArray(indexedDBData.refunds) ? indexedDBData.refunds : []; // Refunds not in global state usually
+    const productBatches = getMergedItems(state.productBatches, indexedDBData.productBatches);
+    const expenses = getMergedItems(state.expenses, indexedDBData.expenses);
+    const planOrders = getMergedItems(state.planOrders, indexedDBData.planOrders);
+    const customerTransactions = getMergedItems(state.customerTransactions, indexedDBData.customerTransactions);
+    const suppliers = getMergedItems(state.suppliers, indexedDBData.suppliers);
+    const supplierTransactions = getMergedItems(state.supplierTransactions, indexedDBData.supplierTransactions);
+    const dProducts = getMergedItems(state.dProducts, indexedDBData.dProducts);
+
+    const stores = {
+      products,
+      customers,
+      orders,
+      transactions,
+      purchaseOrders,
+      productBatches,
+      categories,
+      refunds,
+      expenses,
+      planOrders,
+      customerTransactions,
+      suppliers,
+      supplierTransactions,
+      dProducts
+    };
+
+    let totalItems = 0;
+    let syncedItems = 0;
+    let unsyncedItems = 0;
+    const unsyncedByStore = {
+      products: { count: 0, items: [], reasons: { new: 0, update: 0, deletion: 0 }, errors: [] },
+      customers: { count: 0, items: [], reasons: { new: 0, update: 0, deletion: 0 }, errors: [] },
+      orders: { count: 0, items: [], reasons: { new: 0, update: 0, deletion: 0 }, errors: [] },
+      transactions: { count: 0, items: [], reasons: { new: 0, update: 0, deletion: 0 }, errors: [] },
+      purchaseOrders: { count: 0, items: [], reasons: { new: 0, update: 0, deletion: 0 }, errors: [] },
+      productBatches: { count: 0, items: [], reasons: { new: 0, update: 0, deletion: 0 }, errors: [] },
+      categories: { count: 0, items: [], reasons: { new: 0, update: 0, deletion: 0 }, errors: [] },
+      refunds: { count: 0, items: [], reasons: { new: 0, update: 0, deletion: 0 }, errors: [] },
+      expenses: { count: 0, items: [], reasons: { new: 0, update: 0, deletion: 0 }, errors: [] },
+      planOrders: { count: 0, items: [], reasons: { new: 0, update: 0, deletion: 0 }, errors: [] },
+      customerTransactions: { count: 0, items: [], reasons: { new: 0, update: 0, deletion: 0 }, errors: [] },
+      suppliers: { count: 0, items: [], reasons: { new: 0, update: 0, deletion: 0 }, errors: [] },
+      supplierTransactions: { count: 0, items: [], reasons: { new: 0, update: 0, deletion: 0 }, errors: [] },
+      dProducts: { count: 0, items: [], reasons: { new: 0, update: 0, deletion: 0 }, errors: [] }
+    };
+
+    // Process each store
+    Object.entries(stores).forEach(([storeName, items]) => {
+      if (!Array.isArray(items)) return;
+
+      if (storeName === 'productBatches' && items.length > 0) {
+        const unsyncedCount = items.filter(i => i.isSynced !== true).length;
+        // console.log(`[SYNC DEBUG] store: ${storeName}, total: ${items.length}, unsynced: ${unsyncedCount}`);
+      }
+
+      items.forEach(item => {
+        // Count all items (including deleted ones that need sync)
+        totalItems++;
+
+        // Check if item needs sync
+        // Item needs sync if isSynced is not explicitly true (handles boolean true and string 'true')
+        const needsSync = item.isSynced !== true && item.isSynced !== 'true';
+
+        if (needsSync && storeName !== 'productBatches') {
+          // Additional logging for debugging unsynced items
+          // console.log(`[SYNC DEBUG] Unsynced ${storeName} item:`, { id: item.id || item._id, name: item.name, isSynced: item.isSynced, isDeleted: item.isDeleted });
+        }
+
+        if (needsSync) {
+          unsyncedItems++;
+          // Track unsynced items by store
+          if (unsyncedByStore[storeName]) {
+            unsyncedByStore[storeName].count++;
+
+            // Check if item has sync error
+            const hasSyncError = item.syncError && typeof item.syncError === 'string';
+
+            // Determine reason why item is not synced
+            let reason = 'update';
+            if (item.isDeleted) {
+              reason = 'deletion';
+            } else if (!item._id) {
+              reason = 'new';
+            }
+
+            // Track reasons
+            if (unsyncedByStore[storeName].reasons[reason] !== undefined) {
+              unsyncedByStore[storeName].reasons[reason]++;
+            }
+
+            // Track sync errors
+            if (hasSyncError) {
+              // For refunds, use orderId or refund ID as the name
+              const itemName = storeName === 'refunds'
+                ? (item.orderId ? `Order ${item.orderId}` : item.id || 'Unknown')
+                : (item.name || item.supplierName || item.id || 'Unknown');
+              const errorInfo = {
+                name: itemName,
+                error: item.syncError,
+                attempts: item.syncAttempts || 1,
+                lastAttempt: item.lastSyncAttempt || null
+              };
+              // Limit to first 3 errors for display
+              if (unsyncedByStore[storeName].errors.length < 3) {
+                unsyncedByStore[storeName].errors.push(errorInfo);
+              }
+            }
+
+            // Store item info (limit to first 5 for display)
+            if (unsyncedByStore[storeName].items.length < 5) {
+              // For refunds, use orderId or refund ID as the name
+              const itemName = storeName === 'refunds'
+                ? (item.orderId ? `Order ${item.orderId}` : item.id || 'Unknown')
+                : storeName === 'productBatches'
+                  ? (item.batchNumber ? `Batch: ${item.batchNumber}` : `Batch ID: ${item.id || 'New'}`)
+                  : storeName === 'customerTransactions'
+                    ? `Transaction: ${item.id || item._id || 'New'}`
+                    : storeName === 'supplierTransactions'
+                      ? `Supplier Tx: ${item.id || item._id || 'New'}`
+                      : (item.name || item.supplierName || item.id || 'Unknown');
+              unsyncedByStore[storeName].items.push({
+                name: itemName,
+                type: reason,
+                reason: reason === 'new' ? 'New item' : reason === 'deletion' ? 'Pending deletion' : 'Pending update',
+                hasError: hasSyncError,
+                error: hasSyncError ? item.syncError : null
+              });
+            }
+          }
+        } else {
+          syncedItems++;
+        }
+      });
+    });
+
+    // Calculate percentage
+    const percentage = totalItems > 0
+      ? (unsyncedItems === 0 ? 100 : Math.min(99, Math.floor((syncedItems / totalItems) * 100)))
+      : 100;
+
+    return {
+      totalItems,
+      syncedItems,
+      unsyncedItems,
+      percentage,
+      isFullySynced: unsyncedItems === 0 && totalItems > 0,
+      unsyncedByStore
+    };
+  }, [
+    state.products,
+    state.customers,
+    state.orders,
+    state.transactions,
+    state.purchaseOrders,
+    state.productBatches,
+    state.categories,
+    state.refunds,
+    state.expenses,
+    state.planOrders,
+    state.customerTransactions,
+    state.suppliers,
+    state.supplierTransactions,
+    state.dProducts,
+    indexedDBData.products,
+    indexedDBData.customers,
+    indexedDBData.orders,
+    indexedDBData.transactions,
+    indexedDBData.purchaseOrders,
+    indexedDBData.productBatches,
+    indexedDBData.categories,
+    indexedDBData.refunds,
+    indexedDBData.expenses,
+    indexedDBData.planOrders,
+    indexedDBData.customerTransactions,
+    indexedDBData.suppliers,
+    indexedDBData.supplierTransactions,
+    indexedDBData.dProducts,
+    forceUpdate // Force recalculation when forceUpdate changes
+  ]);
+
+  const { percentage, unsyncedItems, isFullySynced, unsyncedByStore } = syncStatus;
+
+  // Refs and state for popover positioning (must be before early return)
+  const buttonRef = useRef(null);
+  const [popoverPosition, setPopoverPosition] = useState({ top: 0, right: 0 });
+
+  // Close details popover when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (detailsRef.current && typeof detailsRef.current.contains === 'function' && event.target && !detailsRef.current.contains(event.target)) {
+        handleToggle(false);
+      }
+    };
+
+    if (showDetails) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showDetails]);
+
+  // Calculate popover position when opening
+  useEffect(() => {
+    if (showDetails && buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      setPopoverPosition({
+        top: rect.bottom + 8,
+        right: window.innerWidth - rect.right
+      });
+    }
+  }, [showDetails]);
+
+  // Determine sync reason
+  const getSyncReason = () => {
+    if (!isOnline) {
+      return {
+        reason: 'Offline',
+        message: 'You are currently offline. Data will sync automatically when you reconnect to the internet.',
+        details: []
+      };
+    }
+
+    if (isFullySynced) {
+      return {
+        reason: 'All synced',
+        message: 'All data is successfully synced to the database.',
+        details: []
+      };
+    }
+
+    // Build detailed breakdown
+    const details = [];
+    const storeLabels = {
+      products: 'Products',
+      customers: 'Customers',
+      orders: 'Orders',
+      transactions: 'Transactions',
+      purchaseOrders: 'Purchase Orders',
+      categories: 'Categories',
+      refunds: 'Refunds',
+      expenses: 'Expenses',
+      planOrders: 'Plan Orders',
+      suppliers: 'Suppliers',
+      supplierTransactions: 'Supplier Transactions',
+      dProducts: 'D-Products'
+    };
+
+    Object.entries(unsyncedByStore).forEach(([storeName, data]) => {
+      if (data.count > 0) {
+        const label = storeLabels[storeName] || storeName;
+        const itemText = data.count === 1 ? 'item' : 'items';
+
+        // Build reason breakdown
+        const reasonParts = [];
+        if (data.reasons.new > 0) {
+          reasonParts.push(`${data.reasons.new} new`);
+        }
+        if (data.reasons.update > 0) {
+          reasonParts.push(`${data.reasons.update} update${data.reasons.update > 1 ? 's' : ''}`);
+        }
+        if (data.reasons.deletion > 0) {
+          reasonParts.push(`${data.reasons.deletion} deletion${data.reasons.deletion > 1 ? 's' : ''}`);
+        }
+
+        // Count items with errors
+        const errorCount = data.errors.length;
+        const hasErrors = errorCount > 0;
+
+        details.push({
+          store: label,
+          count: data.count,
+          items: data.items,
+          reasons: data.reasons,
+          reasonBreakdown: reasonParts.join(', '),
+          errors: data.errors,
+          errorCount: errorCount,
+          hasErrors: hasErrors,
+          message: `${data.count} ${itemText} left to sync${hasErrors ? ` (${errorCount} with errors)` : ''} - ${reasonParts.join(', ')}`
+        });
+      }
+    });
+
+    // Determine primary reason
+    let reason = 'Pending sync';
+    let message = `${unsyncedItems} item(s) are waiting to sync to the database.`;
+
+    // Check if sync service is currently syncing
+    if (syncService.isSyncing) {
+      reason = 'Syncing in progress';
+      message = 'Data is currently being synced to the database. Please wait...';
+    } else if (unsyncedItems > 0) {
+      reason = 'Pending sync';
+      message = `${unsyncedItems} item(s) are waiting to sync. Sync happens automatically every 30 seconds.`;
+    }
+
+    return { reason, message, details };
+  };
+
+  const syncReason = getSyncReason();
+
+  // Don't show if no items exist
+  if (syncStatus.totalItems === 0) {
+    return null;
+  }
+
+  // Determine status color and icon (matching Header's dark theme)
+  const getStatusStyle = () => {
+    if (!isOnline) {
+      return {
+        bg: 'bg-white/5',
+        text: 'text-white/60',
+        border: 'border-white/10',
+        icon: CloudOff,
+        iconColor: 'text-white/50'
+      };
+    }
+
+    if (isFullySynced) {
+      return {
+        bg: 'bg-emerald-500/20',
+        text: 'text-emerald-300',
+        border: 'border-emerald-400/30',
+        icon: CheckCircle2,
+        iconColor: 'text-emerald-400'
+      };
+    }
+
+    if (percentage >= 80) {
+      return {
+        bg: 'bg-blue-500/20',
+        text: 'text-blue-300',
+        border: 'border-blue-400/30',
+        icon: Cloud,
+        iconColor: 'text-blue-400'
+      };
+    }
+
+    if (percentage >= 50) {
+      return {
+        bg: 'bg-yellow-500/20',
+        text: 'text-yellow-300',
+        border: 'border-yellow-400/30',
+        icon: Loader2,
+        iconColor: 'text-yellow-400 animate-spin'
+      };
+    }
+
+    return {
+      bg: 'bg-orange-500/20',
+      text: 'text-orange-300',
+      border: 'border-orange-400/30',
+      icon: Loader2,
+      iconColor: 'text-orange-400 animate-spin'
+    };
+  };
+
+  const statusStyle = getStatusStyle();
+  const Icon = statusStyle.icon;
+
+  // Calculate individual sync percentages for each data type
+  const getDataTypeSyncStatus = () => {
+    const dataTypes = {
+      products: {
+        icon: Package,
+        label: getTranslation('products', state.currentLanguage),
+        color: 'text-blue-600 dark:text-blue-400',
+        bgColor: 'bg-blue-50 dark:bg-blue-900/20',
+        borderColor: 'border-blue-200 dark:border-blue-800/30'
+      },
+      customers: {
+        icon: Users,
+        label: getTranslation('customers', state.currentLanguage),
+        color: 'text-green-600 dark:text-green-400',
+        bgColor: 'bg-green-50 dark:bg-green-900/20',
+        borderColor: 'border-green-200 dark:border-green-800/30'
+      },
+      orders: {
+        icon: ShoppingCart,
+        label: getTranslation('orders', state.currentLanguage),
+        color: 'text-purple-600 dark:text-purple-400',
+        bgColor: 'bg-purple-50 dark:bg-purple-900/20',
+        borderColor: 'border-purple-200 dark:border-purple-800/30'
+      },
+      transactions: {
+        icon: IndianRupee,
+        label: getTranslation('transactions', state.currentLanguage),
+        color: 'text-emerald-600 dark:text-emerald-400',
+        bgColor: 'bg-emerald-50 dark:bg-emerald-900/20',
+        borderColor: 'border-emerald-200 dark:border-emerald-800/30'
+      },
+      expenses: {
+        icon: CreditCard,
+        label: getTranslation('expenses', state.currentLanguage),
+        color: 'text-rose-600 dark:text-rose-400',
+        bgColor: 'bg-rose-50 dark:bg-rose-900/20',
+        borderColor: 'border-rose-200 dark:border-rose-800/30'
+      },
+      purchaseOrders: {
+        icon: Truck,
+        label: getTranslation('purchaseOrders', state.currentLanguage),
+        color: 'text-orange-600 dark:text-orange-400',
+        bgColor: 'bg-orange-50 dark:bg-orange-900/20',
+        borderColor: 'border-orange-200 dark:border-orange-800/30'
+      },
+      categories: {
+        icon: Database,
+        label: getTranslation('categories', state.currentLanguage),
+        color: 'text-indigo-600 dark:text-indigo-400',
+        bgColor: 'bg-indigo-50 dark:bg-indigo-900/20',
+        borderColor: 'border-indigo-200 dark:border-indigo-800/30'
+      },
+      productBatches: {
+        icon: Package,
+        label: getTranslation('productBatches', state.currentLanguage),
+        color: 'text-cyan-600 dark:text-cyan-400',
+        bgColor: 'bg-cyan-50 dark:bg-cyan-900/20',
+        borderColor: 'border-cyan-200 dark:border-cyan-800/30'
+      },
+      refunds: {
+        icon: RotateCcw,
+        label: getTranslation('refunds', state.currentLanguage),
+        color: 'text-red-600 dark:text-red-400',
+        bgColor: 'bg-red-50 dark:bg-red-900/20',
+        borderColor: 'border-red-200 dark:border-red-800/30'
+      },
+      customerTransactions: {
+        icon: Receipt,
+        label: getTranslation('customerTransactions', state.currentLanguage),
+        color: 'text-amber-600 dark:text-amber-400',
+        bgColor: 'bg-amber-50 dark:bg-amber-900/20',
+        borderColor: 'border-amber-200 dark:border-amber-800/30'
+      },
+      suppliers: {
+        icon: Briefcase,
+        label: getTranslation('suppliers', state.currentLanguage),
+        color: 'text-teal-600 dark:text-teal-400',
+        bgColor: 'bg-teal-50 dark:bg-teal-900/20',
+        borderColor: 'border-teal-200 dark:border-teal-800/30'
+      },
+      supplierTransactions: {
+        icon: FileText,
+        label: getTranslation('supplierTransactions', state.currentLanguage),
+        color: 'text-violet-600 dark:text-violet-400',
+        bgColor: 'bg-violet-50 dark:bg-violet-900/20',
+        borderColor: 'border-violet-200 dark:border-violet-800/30'
+      },
+      dProducts: {
+        icon: BoxSelect,
+        label: 'D-Products',
+        color: 'text-pink-600 dark:text-pink-400',
+        bgColor: 'bg-pink-50 dark:bg-pink-900/20',
+        borderColor: 'border-pink-200 dark:border-pink-800/30'
+      }
+    };
+
+    return Object.entries(dataTypes).map(([key, config]) => {
+      const data = unsyncedByStore[key] || { count: 0 };
+      // Use the actual store data length for total items
+      const storeData = Array.isArray(indexedDBData[key]) ? indexedDBData[key] : [];
+      const totalForType = storeData.length;
+      const syncedForType = totalForType - data.count;
+      const percentageForType = totalForType > 0
+        ? (data.count === 0 ? 100 : Math.min(99, Math.floor((syncedForType / totalForType) * 100)))
+        : 100;
+
+      return {
+        key,
+        ...config,
+        totalItems: totalForType,
+        syncedItems: syncedForType,
+        unsyncedItems: data.count,
+        percentage: percentageForType,
+        items: data.items || [], // Pass items specifically
+        reasons: data.reasons || { new: 0, update: 0, deletion: 0 },
+        errors: data.errors || []
+      };
+    });
+  };
+
+  const dataTypeStatuses = getDataTypeSyncStatus();
+
+  return (
+    <>
+      <div className="relative flex items-center gap-2" ref={detailsRef}>
+        {/* Sync Status Indicator */}
+        <div
+          ref={buttonRef}
+          className={`inline-flex items-center gap-1.5 rounded-lg border ${statusStyle.border} ${statusStyle.bg} px-2.5 py-1.5 transition-all duration-300 cursor-pointer hover:opacity-80`}
+          onClick={() => handleToggle()}
+          title="Click to see detailed sync status"
+        >
+          <Icon className={`h-3.5 w-3.5 sm:h-4 sm:w-4 ${statusStyle.iconColor}`} />
+          <div className="flex items-center gap-1.5">
+            <span className={`text-[10px] font-semibold sm:text-xs ${statusStyle.text} flex items-center gap-1`}>
+              {percentage}%
+              {percentage < 100 && (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              )}
+            </span>
+            {!isFullySynced && isOnline && (
+              <span className={`text-[9px] ${statusStyle.text} opacity-75 hidden sm:inline`}>
+                {unsyncedItems}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Detailed Sync Status Modal - Centered on screen like OrderHistoryModal */}
+      {showDetails && (
+        <div
+          className={`fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-end sm:items-center justify-center z-[1050] p-0 sm:p-4 transition-opacity duration-300 ${isClosing ? 'opacity-0' : 'animate-fadeIn'}`}
+          onClick={() => handleClose()}
+        >
+          <style>{`
+            @keyframes slideUp {
+                from { transform: translateY(100%); }
+                to { transform: translateY(0); }
+            }
+            @keyframes slideDown {
+                from { transform: translateY(0); }
+                to { transform: translateY(100%); }
+            }
+          `}</style>
+          <div
+            key={isClosing ? 'closing' : 'opening'}
+            style={{ animation: `${isClosing ? 'slideDown' : 'slideUp'} 0.4s ease-out forwards` }}
+            className="bg-white dark:bg-black rounded-none sm:rounded-2xl shadow-2xl w-full max-w-4xl h-auto max-h-[95vh] sm:h-auto sm:max-h-[90vh] flex flex-col overflow-hidden transition-colors duration-200 relative border dark:border-white/10"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Fixed Header */}
+            <div className="flex items-center justify-between border-b border-gray-200 dark:border-white/10 px-4 sm:px-6 py-4 flex-shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="flex items-center justify-center w-10 h-10 rounded-full bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800/50">
+                  <Database className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                </div>
+                <div>
+                  <h2 className="text-lg sm:text-xl font-semibold text-gray-900 dark:text-gray-100">{getTranslation('syncStatusDetails', state.currentLanguage)}</h2>
+                  <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">{getTranslation('syncStatusSubtitle', state.currentLanguage)}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => handleClose()}
+                className="p-2 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700/50 rounded-lg transition-colors"
+                aria-label="Close sync details"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Fixed Security Message - Always visible */}
+            {(() => {
+              const planExpired = isCurrentPlanExpired(state.currentPlanDetails, Date.now());
+              const syncIncomplete = percentage < 100;
+
+              if (syncIncomplete) {
+                const message = planExpired
+                  ? getTranslation('dataNotSafeUpgrade', state.currentLanguage)
+                  : getTranslation('dataNotSyncedSecure', state.currentLanguage);
+
+                return (
+                  <div className="px-4 sm:px-6 py-3 bg-red-50 dark:bg-red-900/20 border-b border-red-200 dark:border-red-800/50 flex-shrink-0">
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center justify-center w-8 h-8 rounded-full bg-red-100 dark:bg-red-900/50">
+                        <AlertTriangle className="h-4 w-4 text-red-600 dark:text-red-400" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-red-800 dark:text-red-200">{getTranslation('dataNotSafe', state.currentLanguage)}</p>
+                        <p className="text-xs text-red-600 dark:text-red-300">{message}</p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="px-4 sm:px-6 py-3 bg-green-50 dark:bg-green-900/20 border-b border-green-200 dark:border-green-800/50 flex-shrink-0">
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center justify-center w-8 h-8 rounded-full bg-green-100 dark:bg-green-900/50">
+                      <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-green-800 dark:text-green-200">{getTranslation('dataSafeSecure', state.currentLanguage)}</p>
+                      <p className="text-xs text-green-600 dark:text-green-300">{getTranslation('dataSafeCloud', state.currentLanguage)}</p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Scrollable Content - Everything below security message */}
+            <div className="flex-1 overflow-y-auto overflow-x-hidden">
+              {/* Overall Progress - Now scrollable on mobile */}
+              <div className="px-4 sm:px-6 py-4 border-b border-gray-200 dark:border-white/10 bg-gray-50/50 dark:bg-white/5">
+                <div className="mt-2">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{getTranslation('overallProgress', state.currentLanguage)}</span>
+                    <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">{percentage}%</span>
+                  </div>
+                  <div className="w-full bg-gray-200 dark:bg-slate-700 rounded-full h-3">
+                    <div
+                      className={`h-3 rounded-full transition-all duration-300 ${isFullySynced ? 'bg-green-500' : percentage >= 80 ? 'bg-blue-500' : percentage >= 50 ? 'bg-yellow-500' : 'bg-orange-500'
+                        }`}
+                      style={{ width: `${percentage}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Data Type Cards */}
+              <div className="px-4 sm:px-6 pt-4 pb-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {dataTypeStatuses.map((dataType) => {
+                    const IconComponent = dataType.icon;
+                    const isFullySyncedType = dataType.unsyncedItems === 0;
+                    const hasErrors = dataType.errors.length > 0;
+                    // Show items if there are any AND not fully synced
+                    const pendingItems = !isFullySyncedType && !hasErrors ? dataType.items : [];
+
+                    return (
+                      <div
+                        key={dataType.key}
+                        className={`rounded-xl border ${dataType.borderColor} ${dataType.bgColor} p-4 transition-all hover:shadow-md`}
+                      >
+                        {/* Header */}
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-2">
+                            <IconComponent className={`h-5 w-5 ${dataType.color}`} />
+                            <span className="font-semibold text-gray-900 dark:text-gray-100">{dataType.label}</span>
+                          </div>
+                          <span className={`text-sm font-bold ${dataType.color}`}>
+                            {dataType.percentage}%
+                          </span>
+                        </div>
+
+                        {/* Progress Bar */}
+                        <div className="mb-3">
+                          <div className="w-full bg-white/50 dark:bg-black/20 rounded-full h-2">
+                            <div
+                              className={`h-2 rounded-full transition-all duration-300 ${isFullySyncedType ? 'bg-green-500' : dataType.percentage >= 80 ? 'bg-blue-500' : dataType.percentage >= 50 ? 'bg-yellow-500' : 'bg-orange-500'
+                                }`}
+                              style={{ width: `${dataType.percentage}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Status */}
+                        <div className="mt-3 pt-3 border-t border-white/50 dark:border-white/10">
+                          {isFullySyncedType ? (
+                            <div className="flex items-center gap-1.5 text-xs text-green-700 dark:text-green-300">
+                              <CheckCircle2 className="h-3.5 w-3.5" />
+                              <span>{getTranslation('fullySynced', state.currentLanguage)}</span>
+                            </div>
+                          ) : (
+                            <div className="space-y-1">
+                              <div className="text-xs text-gray-700 dark:text-gray-300">
+                                {getTranslation('syncPending', state.currentLanguage)}
+                              </div>
+                            </div>
+                          )}
+
+                          {hasErrors && (
+                            <div className="mt-2 pt-2 border-t border-white/50 dark:border-white/10">
+                              <div className="text-[10px] font-medium text-red-600 dark:text-red-400 mb-1">
+                                ⚠️ {dataType.errors.length} {dataType.errors.length > 1 ? getTranslation('syncErrors', state.currentLanguage) : getTranslation('syncError', state.currentLanguage)}
+                              </div>
+                              {dataType.errors.slice(0, 2).map((error, idx) => (
+                                <div key={idx} className="text-[9px] text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/30 rounded px-1.5 py-1 mb-1">
+                                  <div className="font-medium truncate">{error.name}</div>
+                                  <div className="truncate" title={error.error}>{error.error}</div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Pending Items List - To debug invisible pending items */}
+                          {pendingItems.length > 0 && (
+                            <div className="mt-2 pt-2 border-t border-white/50 dark:border-white/10">
+                              <div className="text-[10px] font-medium text-amber-700 dark:text-amber-400 mb-1">
+                                ⏳ Pending:
+                              </div>
+                              {pendingItems.slice(0, 3).map((item, idx) => (
+                                <div key={idx} className="text-[9px] text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/30 rounded px-1.5 py-1 mb-1">
+                                  <div className="font-medium truncate">{item.name}</div>
+                                  <div className="opacity-75">{item.reason}</div>
+                                </div>
+                              ))}
+                              {pendingItems.length > 3 && (
+                                <div className="text-[9px] text-amber-700 dark:text-amber-400 pl-1">
+                                  + {pendingItems.length - 3} more...
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Additional Info */}
+              <div className="px-4 sm:px-6 pb-4 space-y-3">
+                {!isOnline && (
+                  <div className="flex items-start gap-3 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-lg">
+                    <CloudOff className="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-semibold text-amber-800 dark:text-amber-200">Offline Mode</p>
+                      <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">Data will sync automatically when you reconnect to the internet.</p>
+                    </div>
+                  </div>
+                )}
+
+                {isOnline && !isFullySynced && !syncService.isSyncing && (
+                  <div className="flex items-start gap-3 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800/50 rounded-lg">
+                    <Info className="h-5 w-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-semibold text-blue-800 dark:text-blue-200">Auto-sync Active</p>
+                      <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">Data syncs automatically every 30 seconds.</p>
+                    </div>
+                  </div>
+                )}
+
+                {isOnline && syncService.isSyncing && (
+                  <div className="flex items-start gap-3 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800/50 rounded-lg">
+                    <Loader2 className="h-5 w-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5 animate-spin" />
+                    <div>
+                      <p className="font-semibold text-blue-800 dark:text-blue-200">Syncing in Progress</p>
+                      <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">Please wait while data is being synchronized...</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
+
+export default SyncStatus;
