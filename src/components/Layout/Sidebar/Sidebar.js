@@ -1,0 +1,290 @@
+import React, { useCallback, useMemo, useEffect, useState } from 'react';
+import { useApp, ActionTypes, isPlanExpired } from '../../../context/AppContext';
+import {
+  LayoutDashboard,
+  Users,
+  Receipt,
+  Package,
+  Truck,
+  BarChart3,
+  TrendingUp,
+  Crown,
+  Settings,
+  X,
+  Warehouse,
+  Wallet,
+  IndianRupee,
+  CreditCard,
+  Lock,
+  History,
+  RotateCcw,
+  Share2,
+  Palette,
+  FileText,
+  BoxSelect,
+  Zap,
+  Store,
+  PlayCircle
+} from 'lucide-react';
+import { getTranslation } from '../../../utils/translations';
+import { isModuleUnlocked, getUpgradeMessage } from '../../../utils/planUtils';
+import { getPathForView } from '../../../utils/navigation';
+import { useNavigate } from 'react-router-dom';
+
+const parseExpiryDate = (rawValue) => {
+  if (!rawValue) return null;
+  const parsedDate = new Date(rawValue);
+  return Number.isNaN(parsedDate.getTime()) ? null : parsedDate;
+};
+
+const getSubscriptionExpiryDate = (state) => {
+  if (!state) return null;
+  const rawValue =
+    state.subscription?.expiresAt ||
+    state.subscription?.expiryDate ||
+    state.subscription?.endDate ||
+    state.currentPlanDetails?.expiresAt ||
+    state.currentPlanDetails?.expiryDate ||
+    state.currentPlanDetails?.endDate ||
+    null;
+  return parseExpiryDate(rawValue);
+};
+
+const Sidebar = React.memo(({ onClose, isMinimized = false }) => {
+  const { state, dispatch } = useApp();
+  const navigate = useNavigate();
+
+  // Force re-render when plan details change
+  const [planDetailsKey, setPlanDetailsKey] = useState(0);
+
+  // Force re-render when plan details change
+  useEffect(() => {
+    // Force component update by changing a local state
+    setPlanDetailsKey(prev => prev + 1);
+  }, [state.currentPlan, state.currentPlanDetails?.unlockedModules, state.isSubscriptionActive]);
+  const subscriptionExpiryDate = useMemo(() => getSubscriptionExpiryDate(state), [state]);
+  const subscriptionStatus = useMemo(() =>
+    typeof state.subscription?.status === 'string'
+      ? state.subscription.status.toLowerCase()
+      : null,
+    [state.subscription?.status]
+  );
+  const planExpired = useMemo(() => isPlanExpired(state), [state]);
+
+  /* FILTER PENDING ORDERS
+     * Only count orders that originate from 'online' and have status 'Pending'
+     */
+  const pendingOrdersCount = useMemo(() => {
+    if (!state.orders || !Array.isArray(state.orders)) return 0;
+    return state.orders.filter(order =>
+      (order.orderSource === 'online' || order.source === 'online') &&
+      order.orderStatus === 'Pending'
+    ).length;
+  }, [state.orders]);
+
+  const planExpiredMessage = 'Your subscription has expired. Upgrade your plan to continue.';
+  // Settings, dashboard, and upgrade are always unlocked for all users, regardless of plan status
+  // Base navigation items - show all but lock unavailable ones
+  const navigation = useMemo(() => [
+    { name: 'dashboard', href: 'dashboard', icon: LayoutDashboard },
+    { name: 'customers', href: 'customers', icon: Users },
+    { name: 'suppliers', href: 'suppliers', icon: Warehouse },
+    { name: 'products', href: 'products', icon: Package },
+    { name: 'dProducts', href: 'dProducts', icon: Zap },
+    { name: 'onlineStore', href: 'onlineStore', icon: Store, badge: pendingOrdersCount > 0 ? pendingOrdersCount : null, disabled: true },
+
+    { name: 'billing', href: 'billing', icon: CreditCard },
+    { name: 'salesOrderHistory', href: 'salesOrderHistory', icon: History },
+    { name: 'refunds', href: 'refunds', icon: RotateCcw },
+    { name: 'purchaseOrders', href: 'purchase', icon: Truck },
+    { name: 'financial', href: 'financial', icon: IndianRupee },
+    { name: 'reports', href: 'reports', icon: BarChart3 },
+    { name: 'gstReports', href: 'gst', icon: FileText },
+    { name: 'productPerformance', href: 'productPerformance', icon: TrendingUp },
+    { name: 'tutorials', href: 'tutorials', icon: PlayCircle },
+    // { name: 'Customization', href: 'customization', icon: Palette },
+    { name: 'upgradePlan', href: 'upgrade', icon: Crown },
+  ], [pendingOrdersCount]);
+
+  const handleNavigation = useCallback((view) => {
+    // Check if the item is disabled first
+    const item = navigation.find(n => n.href === view);
+    if (item?.disabled) return;
+
+    // Strict Lock Check: Check if this module is unlocked
+    // We skip this check for 'upgrade' page itself to ensure user can always upgrade
+    if (item && item.href !== 'upgrade') {
+      const isUnlocked = isModuleUnlocked(item.name, state.currentPlan, state.currentPlanDetails);
+      if (!isUnlocked) {
+        if (window.showToast) {
+          window.showToast(getUpgradeMessage(item.name, state.currentPlan) || 'Please upgrade your plan to access this feature', 'warning');
+        }
+        return; // BLOCK NAVIGATION
+      }
+    }
+
+    const path = getPathForView(view);
+    dispatch({ type: ActionTypes.SET_CURRENT_VIEW, payload: view });
+    navigate(path);
+    if (onClose) onClose();
+  }, [state.currentPlanDetails, state.currentPlan, dispatch, navigate, onClose, navigation]);
+
+  // Preload critical images on component mount
+  useEffect(() => {
+    const { preloadCriticalImages } = require('../../../utils/imageOptimization');
+    preloadCriticalImages();
+  }, []);
+
+  const getNavButtonClass = useCallback((isActive, isUnlocked, isUpgrade) => {
+    const baseClasses = `group relative flex w-full items-center ${isMinimized ? 'justify-center px-2' : 'gap-3 px-4'} rounded-2xl py-3 text-sm font-medium transition-all duration-200 border border-transparent`;
+
+    if (!isUnlocked) {
+      return `${baseClasses} text-slate-400 dark:text-slate-600 cursor-not-allowed`;
+    }
+
+    if (isActive) {
+      return `${baseClasses} bg-gradient-to-r from-slate-900 to-slate-900 dark:from-white dark:to-white text-white dark:text-slate-900 shadow-lg`;
+    }
+
+    if (isUpgrade) {
+      return `${baseClasses} text-slate-600 dark:text-slate-300 hover:bg-white/70 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-indigo-400`;
+    }
+
+    return `${baseClasses} text-slate-600 dark:text-slate-300 hover:bg-white/70 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-indigo-400`;
+  }, [isMinimized]);
+
+  const getIconClass = useCallback((isActive, isUnlocked) => {
+    if (!isUnlocked) return 'h-5 w-5 text-slate-300 dark:text-slate-700 flex-shrink-0';
+    return isActive ? 'h-5 w-5 text-white dark:text-slate-900 flex-shrink-0' : 'h-5 w-5 text-slate-500 dark:text-slate-400 group-hover:text-slate-900 dark:group-hover:text-indigo-400 flex-shrink-0';
+  }, []);
+
+  const logoSrc = useMemo(() => `${process.env.PUBLIC_URL || ''}/assets/drag-and-drop-logo-croped.jpg`, []);
+  const fallbackLogoSrc = useMemo(() => `${process.env.PUBLIC_URL || ''}/assets/drag-drop-logo.png`, []);
+
+  const handleLogoError = useCallback((e) => {
+    e.currentTarget.src = fallbackLogoSrc;
+  }, [fallbackLogoSrc]);
+
+  return (
+    <div className={`dark-sidebar flex h-full flex-col transition-all duration-300 ${isMinimized ? 'items-center' : ''}`} style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <div className={`flex items-center ${isMinimized ? 'justify-center px-2' : 'justify-between px-5'} py-5 flex-shrink-0 border-b border-slate-200/50 dark:border-slate-700/50 transition-all duration-300`}>
+        <div className={`flex items-center ${isMinimized ? 'justify-center' : 'gap-3'} min-w-0`}>
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-transparent overflow-hidden flex-shrink-0">
+            <img
+              src={logoSrc}
+              alt="Drag & Drop"
+              className="h-full w-full object-cover"
+              onError={handleLogoError}
+            />
+          </div>
+          {!isMinimized && (
+            <div className="min-w-0 transition-opacity duration-300">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.35em] text-slate-500 dark:text-slate-400 whitespace-nowrap">Drag &amp; Drop</p>
+              <h1 className="truncate text-lg font-semibold text-slate-800 dark:text-slate-100 whitespace-nowrap">Grocery Studio</h1>
+              {planExpired && (
+                <div className="mt-1 flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-rose-50 dark:bg-rose-900/20 border border-rose-100 dark:border-rose-900/30 text-[10px] font-bold text-rose-600 dark:text-rose-400 w-fit">
+                  <Lock className="h-3 w-3" />
+                  <span>EXPIRED</span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        {!isMinimized && onClose && (
+          <button
+            onClick={onClose}
+            className="xl:hidden inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-100 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-700"
+            aria-label="Close navigation"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        )}
+      </div>
+
+      <div className="flex-1 overflow-y-auto overflow-x-hidden min-h-0 w-full" style={{ WebkitOverflowScrolling: 'touch' }}>
+        <ul className={`pb-6 pt-2 ${isMinimized ? 'px-2' : ''}`}>
+          {navigation.map((item) => {
+            const Icon = item.icon;
+            const isActive = state.currentView === item.href;
+            const isUpgradePage = item.href === 'upgrade';
+            const finalIsUnlocked = isModuleUnlocked(item.name, state.currentPlan, state.currentPlanDetails);
+
+            const buttonTitle = isMinimized
+              ? getTranslation(item.name, state.currentLanguage)
+              : (!finalIsUnlocked ? getUpgradeMessage(item.name, state.currentPlan) : undefined);
+
+            return (
+              <li key={item.name} className={`${isMinimized ? 'px-0' : 'px-3'} py-1`}>
+                <button
+                  onClick={() => handleNavigation(item.href)}
+                  className={getNavButtonClass(isActive, finalIsUnlocked && !item.disabled, isUpgradePage)}
+                  title={item.disabled ? getTranslation('comingSoon', state.currentLanguage) : buttonTitle}
+                  disabled={!finalIsUnlocked || item.disabled}
+                >
+                  <div className="relative">
+                    <Icon className={getIconClass(isActive, finalIsUnlocked)} />
+                    {isMinimized && item.badge && (
+                      <span className="absolute -top-2 -right-2 flex h-4 w-4 items-center justify-center rounded-full bg-red-600 text-[9px] font-bold text-white shadow-sm ring-2 ring-white dark:ring-slate-900">
+                        {item.badge}
+                      </span>
+                    )}
+                  </div>
+                  {!isMinimized && (
+                    <>
+                      <span className="truncate capitalize flex-1 text-left">
+                        {getTranslation(item.name, state.currentLanguage)}
+                      </span>
+                      {!finalIsUnlocked && (
+                        <Lock className="h-4 w-4 text-slate-300 dark:text-slate-600" />
+                      )}
+                      {isUpgradePage && (
+                        <Crown className="h-4 w-4 text-amber-400" />
+                      )}
+                      {item.badge && (
+                        <span className="flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-red-600 px-1.5 text-[10px] font-bold text-white shadow-sm transition-transform duration-200 hover:scale-110">
+                          {item.badge}
+                        </span>
+                      )}
+                      {item.disabled && (
+                        <span className="ml-2 px-2 py-0.5 text-[9px] font-bold bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 rounded-full border border-amber-200 dark:border-amber-900/50 whitespace-nowrap">
+                          {getTranslation('comingSoon', state.currentLanguage)}
+                        </span>
+                      )}
+                    </>
+                  )}
+                </button>
+              </li>
+            );
+          })}
+
+
+          {/* Settings button - always shown for all users regardless of plan or permissions */}
+          <li className={`${isMinimized ? 'px-0' : 'px-3'} py-1`}>
+            <button
+              onClick={() => handleNavigation('settings')}
+              className={getNavButtonClass(
+                state.currentView === 'settings',
+                true, // Settings are always unlocked for all users
+                false
+              )}
+              disabled={false} // Settings are never disabled
+              title={isMinimized ? getTranslation('settings', state.currentLanguage) : undefined}
+            >
+              <Settings className={getIconClass(
+                state.currentView === 'settings',
+                true // Settings are always unlocked for all users
+              )} />
+              {!isMinimized && (
+                <span className="truncate capitalize flex-1 text-left">{getTranslation('settings', state.currentLanguage)}</span>
+              )}
+            </button>
+          </li>
+        </ul>
+      </div>
+    </div>
+  );
+});
+
+Sidebar.displayName = 'Sidebar';
+
+export default Sidebar;
