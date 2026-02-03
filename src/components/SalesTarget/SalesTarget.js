@@ -230,6 +230,12 @@ const SalesTarget = () => {
 
     const handleSetTarget = async (e) => {
         e.preventDefault();
+
+        // Check if value hasn't changed
+        if (todayTarget && Number(targetInput) === todayTarget.targetAmount) {
+            return;
+        }
+
         if (!targetInput || isNaN(targetInput) || Number(targetInput) < 0) {
             if (window.showToast) window.showToast('Please enter a valid target amount', 'error');
             return;
@@ -360,24 +366,7 @@ const SalesTarget = () => {
                 </div>
 
                 {/* Quick Stats in Header */}
-                <div className="flex items-center gap-3">
-                    <div className="bg-white dark:bg-slate-800 px-4 py-2 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
-                            <TrendingUp className="w-4 h-4" />
-                        </div>
-                        <div>
-                            <div className="flex items-center gap-2 mb-0.5">
-                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Growth</p>
-                                <span className="text-[9px] font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700/50 px-1.5 rounded-md whitespace-nowrap">
-                                    Last 14 Days
-                                </span>
-                            </div>
-                            <p className="text-sm font-black text-slate-900 dark:text-white">
-                                +{suggestionData?.growthPercentage || 0}%
-                            </p>
-                        </div>
-                    </div>
-                </div>
+
             </div>
 
             {/* Main Interactive Card */}
@@ -389,7 +378,7 @@ const SalesTarget = () => {
                     </div>
 
                     <div className="relative z-10">
-                        <div className="flex items-center justify-between mb-8">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
                             <div className="flex items-center gap-3">
                                 <div className="p-2.5 bg-indigo-50 dark:bg-indigo-900/40 rounded-xl text-indigo-600 dark:text-indigo-400">
                                     <Calendar className="h-6 w-6" />
@@ -402,7 +391,7 @@ const SalesTarget = () => {
                             <button
                                 type="button"
                                 onClick={handleAutoSetTarget}
-                                className="flex items-center gap-2 px-4 py-2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-xl font-bold text-xs transition-all active:scale-95 shadow-md hover:opacity-90"
+                                className="flex items-center justify-center gap-2 px-4 py-2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-xl font-bold text-xs transition-all active:scale-95 shadow-md hover:opacity-90 w-full sm:w-auto"
                             >
                                 <Sparkles className="h-3.5 w-3.5" />
                                 AI SUGGEST
@@ -415,7 +404,7 @@ const SalesTarget = () => {
                                     Define Your Target
                                 </label>
                                 <div className="relative group/input">
-                                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                                    <div className="absolute inset-y-0 left-0 top-0 sm:top-auto pl-4 flex items-center pointer-events-none h-14 sm:h-full">
                                         <span className="text-lg font-black text-indigo-600 dark:text-indigo-400 tracking-tighter">₹</span>
                                     </div>
                                     <input
@@ -429,13 +418,16 @@ const SalesTarget = () => {
                                             }
                                         }}
                                         placeholder="Enter target amount..."
-                                        className="block w-full pl-14 pr-32 py-5 bg-slate-50 dark:bg-slate-900/50 border-2 border-slate-100 dark:border-slate-700/50 rounded-2xl text-xl font-black text-slate-900 dark:text-white placeholder:text-slate-300 dark:placeholder:text-slate-700 focus:outline-none focus:border-indigo-600 dark:focus:border-indigo-500 focus:ring-4 focus:ring-indigo-600/10 transition-all"
+                                        className="block w-full pl-14 pr-4 sm:pr-32 py-4 sm:py-5 bg-slate-50 dark:bg-slate-900/50 border-2 border-slate-100 dark:border-slate-700/50 rounded-2xl text-xl font-black text-slate-900 dark:text-white placeholder:text-slate-300 dark:placeholder:text-slate-700 focus:outline-none focus:border-indigo-600 dark:focus:border-indigo-500 focus:ring-4 focus:ring-indigo-600/10 transition-all h-14 sm:h-auto"
                                     />
-                                    <div className="absolute inset-y-2 right-2">
+                                    <div className="mt-3 sm:absolute sm:inset-y-2 sm:right-2 sm:mt-0">
                                         <button
                                             type="submit"
-                                            disabled={isSubmitting}
-                                            className="h-full px-6 bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-black text-sm rounded-xl shadow-lg active:scale-[0.98] transition-all flex items-center justify-center gap-2 hover:opacity-90"
+                                            disabled={isSubmitting || (todayTarget && Number(targetInput) === todayTarget.targetAmount)}
+                                            className={`w-full sm:w-auto h-12 sm:h-full px-6 font-black text-sm rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 ${isSubmitting || (todayTarget && Number(targetInput) === todayTarget.targetAmount)
+                                                ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-600 cursor-not-allowed'
+                                                : 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 active:scale-[0.98] hover:opacity-90'
+                                                }`}
                                         >
                                             {isSubmitting ? (
                                                 <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -450,14 +442,14 @@ const SalesTarget = () => {
                                 </div>
                             </div>
 
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <div className="p-4 bg-slate-50 dark:bg-slate-900/50 rounded-2xl border border-slate-100 dark:border-slate-800">
                                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Current Sales</p>
                                     <p className="text-xl font-black text-slate-900 dark:text-white">
                                         {formatCurrencySmart(todaySales, state.currencyFormat)}
                                     </p>
                                 </div>
-                                <div className="p-4 bg-slate-50 dark:bg-slate-900/50 rounded-2xl border border-slate-100 dark:border-slate-800 text-right">
+                                <div className="p-4 bg-slate-50 dark:bg-slate-900/50 rounded-2xl border border-slate-100 dark:border-slate-800 text-left sm:text-right">
                                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Target</p>
                                     <p className="text-xl font-black text-indigo-600 dark:text-indigo-400">
                                         {formatCurrencySmart(Number(targetInput) || 0, state.currencyFormat)}
@@ -537,17 +529,17 @@ const SalesTarget = () => {
                             <p className="text-xs text-slate-500 font-bold uppercase tracking-widest">Growth metrics over time</p>
                         </div>
                     </div>
-                    <div className="flex bg-slate-100 dark:bg-slate-900/50 p-1.5 rounded-2xl">
+                    <div className="flex items-center justify-between sm:justify-start gap-2 sm:gap-4 bg-slate-100 dark:bg-slate-900/50 p-1.5 rounded-2xl w-full sm:w-auto">
                         <button
                             onClick={() => setViewMode('chart')}
-                            className={`flex items-center gap-2 px-6 py-2 rounded-xl text-sm font-black transition-all ${viewMode === 'chart' ? 'bg-white dark:bg-slate-800 shadow-lg text-indigo-600 dark:text-indigo-400' : 'text-slate-400 hover:text-slate-600'}`}
+                            className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-2 rounded-xl text-sm font-black transition-all ${viewMode === 'chart' ? 'bg-white dark:bg-slate-800 shadow-lg text-indigo-600 dark:text-indigo-400' : 'text-slate-400 hover:text-slate-600'}`}
                         >
                             <TrendingUp className="w-4 h-4" />
                             CHART
                         </button>
                         <button
                             onClick={() => setViewMode('list')}
-                            className={`flex items-center gap-2 px-6 py-2 rounded-xl text-sm font-black transition-all ${viewMode === 'list' ? 'bg-white dark:bg-slate-800 shadow-lg text-indigo-600 dark:text-indigo-400' : 'text-slate-400 hover:text-slate-600'}`}
+                            className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-2 rounded-xl text-sm font-black transition-all ${viewMode === 'list' ? 'bg-white dark:bg-slate-800 shadow-lg text-indigo-600 dark:text-indigo-400' : 'text-slate-400 hover:text-slate-600'}`}
                         >
                             <ListChecks className="w-4 h-4" />
                             LOG
@@ -686,49 +678,35 @@ const SalesTarget = () => {
 
             {/* AI Confirmation Modal */}
             {showConfirmModal && suggestionData && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-slate-900/40 backdrop-blur-md animate-in fade-in duration-300">
-                    <div className="bg-white dark:bg-slate-900 rounded-[40px] w-full max-w-md overflow-hidden shadow-2xl animate-in zoom-in-95 duration-300 border border-indigo-100/50 dark:border-indigo-900/30">
-                        <div className="bg-indigo-600 p-10 flex flex-col items-center text-center relative overflow-hidden">
-                            <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.2),transparent)] pointer-events-none"></div>
-                            <div className="w-20 h-20 rounded-3xl bg-white/20 backdrop-blur-xl flex items-center justify-center text-white mb-6 shadow-xl border border-white/20">
-                                <Sparkles className="h-10 w-10 animate-pulse" />
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
+                    <div className="bg-white dark:bg-slate-900 w-full max-w-[320px] rounded-[24px] overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200">
+                        <div className="p-6 pb-0 flex flex-col items-center text-center">
+                            <div className="w-12 h-12 rounded-full bg-indigo-50 dark:bg-indigo-900/30 flex items-center justify-center text-indigo-600 dark:text-indigo-400 mb-4">
+                                <Sparkles className="h-6 w-6" />
                             </div>
-                            <h3 className="text-2xl font-black text-white tracking-tight uppercase">AI Magic Suggestion</h3>
+
+                            <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2">
+                                Grocery Studio Suggestion
+                            </h3>
+
+                            <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed max-w-[240px] mx-auto mb-6">
+                                We recommend a daily target of <span className="font-bold text-slate-900 dark:text-white">{formatCurrencySmart(suggestionData.suggested, state.currencyFormat)}</span> based on your recent growth.
+                            </p>
                         </div>
 
-                        <div className="p-8 sm:p-10 space-y-8">
-                            <div className="text-center">
-                                <p className="text-sm font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Recommended Goal</p>
-                                <p className="text-5xl font-black text-indigo-600 dark:text-indigo-400 tracking-tighter tabular-nums">
-                                    {formatCurrencySmart(suggestionData.suggested, state.currencyFormat)}
-                                </p>
-                            </div>
-
-                            <div className="bg-slate-50 dark:bg-slate-800/50 rounded-3xl p-6 border-2 border-indigo-50 dark:border-indigo-900/20">
-                                <div className="flex items-center gap-2 mb-3">
-                                    <div className="w-1.5 h-1.5 rounded-full bg-indigo-600 animate-ping"></div>
-                                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Analysis Engine</h4>
-                                </div>
-                                <p className="text-sm font-bold text-slate-600 dark:text-slate-300 leading-relaxed italic">
-                                    " {suggestionData.reason} "
-                                </p>
-                            </div>
-
-                            <div className="grid grid-cols-1 gap-3 pt-4">
-                                <button
-                                    onClick={confirmAutoTarget}
-                                    className="w-full py-5 bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-black rounded-2xl transition-all shadow-xl active:scale-[0.98] flex items-center justify-center gap-3 group hover:opacity-90"
-                                >
-                                    <span>YES, APPLY TARGET</span>
-                                    <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-                                </button>
-                                <button
-                                    onClick={() => setShowConfirmModal(false)}
-                                    className="w-full py-4 text-slate-400 hover:text-red-500 font-black text-[11px] uppercase tracking-widest transition-all"
-                                >
-                                    Dismiss Suggestion
-                                </button>
-                            </div>
+                        <div className="grid grid-cols-2 border-t border-slate-100 dark:border-slate-800 divide-x divide-slate-100 dark:divide-slate-800">
+                            <button
+                                onClick={() => setShowConfirmModal(false)}
+                                className="py-4 text-sm font-medium text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={confirmAutoTarget}
+                                className="py-4 text-sm font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/10 transition-colors"
+                            >
+                                Apply
+                            </button>
                         </div>
                     </div>
                 </div>
