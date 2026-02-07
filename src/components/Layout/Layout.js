@@ -1,0 +1,651 @@
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { useApp, ActionTypes } from '../../context/AppContext';
+import { API_BASE_URL } from '../../utils/api';
+import Sidebar from './Sidebar/Sidebar';
+import Header from './Header/Header';
+import { usePWAInstall } from '../../hooks/usePWAInstall';
+
+import { useKeyboardShortcut } from '../../hooks/useKeyboardShortcut';
+import { useLocation } from 'react-router-dom';
+
+const Layout = React.memo(({ children }) => {
+  const { state, dispatch } = useApp();
+  const planBootstrapState = state.planBootstrap || {};
+  const shouldShowPlanLoader = planBootstrapState.isActive && !planBootstrapState.hasCompleted;
+  const [isPlanLoaderVisible, setIsPlanLoaderVisible] = useState(shouldShowPlanLoader);
+  // Set sidebar off by default on mobile/tablet (screens < 1280px), on by default on desktop
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    // Check if we're on mobile/tablet (screen width < 1280px which is xl breakpoint)
+    return typeof window !== 'undefined' ? window.innerWidth >= 1280 : true;
+  });
+  const [toasts, setToasts] = useState([]);
+
+  // Keyboard shortcut: Shift + S to toggle sidebar
+  useKeyboardShortcut('s', false, true, () => {
+    setSidebarOpen(prevState => {
+      const newState = !prevState;
+
+      // Show toast
+      if (window.showToast) {
+        window.showToast(newState ? 'Sidebar opened' : 'Sidebar closed', 'info', 1500);
+      }
+
+      return newState;
+    });
+  }, [sidebarOpen]); // Add sidebarOpen as dependency
+
+  // Handle responsive sidebar behavior - close on mobile/tablet, open on desktop
+  useEffect(() => {
+    const handleResize = () => {
+      const isDesktop = window.innerWidth >= 1280; // xl breakpoint
+      setSidebarOpen(isDesktop);
+    };
+
+    // Add resize listener
+    window.addEventListener('resize', handleResize);
+
+    // Cleanup
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, []);
+
+  // Handle mobile detection for responsive toasts
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobileView(window.innerWidth < 768); // md breakpoint
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+
+  const { prompt, isInstallable, isInstalled, install } = usePWAInstall();
+  const [showInstallPrompt, setShowInstallPrompt] = useState(false);
+  const [hasDismissedInstallPrompt, setHasDismissedInstallPrompt] = useState(() => {
+    if (typeof window === 'undefined') {
+      return false;
+    }
+    return sessionStorage.getItem('pwa-install-dismissed') === 'true';
+  });
+  const [isMobileView, setIsMobileView] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.innerWidth < 768; // md breakpoint
+  });
+
+  const [showReadOnlyModal, setShowReadOnlyModal] = useState(false);
+
+  useEffect(() => {
+    if (shouldShowPlanLoader) {
+      setIsPlanLoaderVisible(true);
+      return;
+    }
+    if (!isPlanLoaderVisible) return;
+    const timeout = setTimeout(() => setIsPlanLoaderVisible(false), 400);
+    return () => clearTimeout(timeout);
+  }, [shouldShowPlanLoader, isPlanLoaderVisible]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    sessionStorage.setItem('pwa-install-dismissed', hasDismissedInstallPrompt ? 'true' : 'false');
+  }, [hasDismissedInstallPrompt]);
+
+  useEffect(() => {
+    if (isInstallable && !isInstalled && !hasDismissedInstallPrompt) {
+      const timer = setTimeout(() => setShowInstallPrompt(true), 800);
+      return () => clearTimeout(timer);
+    }
+    setShowInstallPrompt(false);
+  }, [isInstallable, isInstalled, hasDismissedInstallPrompt]);
+
+
+
+  const showToast = useCallback((message, type = 'info', duration) => {
+    // Set default duration based on type
+    if (!duration) {
+      switch (type) {
+        case 'error':
+          duration = 6000; // Errors should be visible longer
+          break;
+        case 'warning':
+          duration = 5000;
+          break;
+        case 'success':
+          duration = 3500; // Success messages can be shorter
+          break;
+        default:
+          duration = 4000;
+      }
+    }
+
+    const id = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const newToast = { id, message, type, duration, createdAt: id };
+
+    // persistent Audio ref used below
+    const { playNotificationSound, playWebAudioBeep } = require('../../utils/audioUtils');
+    if (type === 'success') {
+      playNotificationSound();
+    } else if (type === 'error') {
+      playWebAudioBeep(300, 0.4, 0.5); // Low frequency "error" beep
+    } else if (type === 'warning') {
+      playWebAudioBeep(500, 0.3, 0.4); // Mid frequency "warning" beep
+    } else {
+      // info or others
+      playWebAudioBeep(1000, 0.1, 0.1); // High frequency short "info" pip
+    }
+
+    setToasts(prev => {
+      // Clear timeouts for ALL existing toasts since we are replacing them
+      prev.forEach(t => {
+        if (t.timeoutId) clearTimeout(t.timeoutId);
+      });
+
+      // Replace everything with just the new toast (Single toast mode)
+      return [newToast];
+    });
+
+    // Auto-remove after duration - trigger dismissal animation first
+    const timeoutId = setTimeout(() => {
+      removeToast(id);
+    }, duration);
+
+    // Update the toast with its timeout ID for cleanup
+    setToasts(prev => prev.map(toast =>
+      toast.id === id ? { ...toast, timeoutId } : toast
+    ));
+  }, []);
+
+  useEffect(() => {
+    window.showToast = showToast;
+  }, []);
+
+  const removeToast = useCallback((id) => {
+    // First trigger dismissal animation
+    setToasts(prev => prev.map(toast => {
+      if (toast.id === id) {
+        return { ...toast, isDismissing: true };
+      }
+      return toast;
+    }));
+
+    // Then remove after animation completes
+    setTimeout(() => {
+      setToasts(prev => prev.map(toast => {
+        if (toast.id === id && toast.timeoutId) {
+          clearTimeout(toast.timeoutId);
+        }
+        return toast;
+      }).filter(toast => toast.id !== id));
+    }, 300);
+  }, []);
+
+  // Enhanced toast with pause-on-hover and mobile-style slide animations
+  const ToastItem = React.memo(({ toast, onRemove, isMobile }) => {
+    const [isPaused, setIsPaused] = useState(false);
+    const [remainingTime, setRemainingTime] = useState(toast.duration);
+
+    // Swipe state
+    const [touchStart, setTouchStart] = useState(null);
+    const [swipeOffset, setSwipeOffset] = useState({ x: 0, y: 0 });
+    const [isDragging, setIsDragging] = useState(false);
+
+    const isDismissing = toast.isDismissing || false;
+    const startTimeRef = useRef(Date.now());
+    const totalPausedTimeRef = useRef(0);
+    const lastPauseStartRef = useRef(null);
+    const timerRef = useRef(null);
+
+    // Calculate progress bar width
+    const progressWidth = Math.max(0, (remainingTime / toast.duration) * 100);
+
+    useEffect(() => {
+      // If paused or dragging, we don't tick.
+      if (isPaused || isDragging) {
+        if (!lastPauseStartRef.current) {
+          lastPauseStartRef.current = Date.now();
+        }
+        if (timerRef.current) clearTimeout(timerRef.current);
+        return;
+      }
+
+      // If we were paused, add that duration to totalPausedTime
+      if (lastPauseStartRef.current) {
+        totalPausedTimeRef.current += (Date.now() - lastPauseStartRef.current);
+        lastPauseStartRef.current = null;
+      }
+
+      const updateTimer = () => {
+        const now = Date.now();
+        const activeDuration = now - startTimeRef.current - totalPausedTimeRef.current;
+        const remaining = Math.max(0, toast.duration - activeDuration);
+
+        // Avoid unnecessary updates if already 0
+        if (remainingTime !== remaining) {
+          setRemainingTime(remaining);
+        }
+
+        if (remaining <= 0) {
+          onRemove(toast.id);
+        } else {
+          timerRef.current = setTimeout(updateTimer, 50);
+        }
+      };
+
+      // Start the timer
+      timerRef.current = setTimeout(updateTimer, 50);
+
+      return () => {
+        if (timerRef.current) {
+          clearTimeout(timerRef.current);
+        }
+      };
+    }, [isPaused, isDragging, toast.id, toast.duration, onRemove]); // Removed remainingTime from dep to avoid loop, calculated inside
+
+    const handleMouseEnter = useCallback(() => {
+      setIsPaused(true);
+    }, []);
+
+    const handleMouseLeave = useCallback(() => {
+      setIsPaused(false);
+    }, []);
+
+    const handleTouchStart = (e) => {
+      setTouchStart({ x: e.touches[0].clientX, y: e.touches[0].clientY });
+      setIsDragging(true);
+    };
+
+    const handleTouchMove = (e) => {
+      if (!touchStart) return;
+      const x = e.touches[0].clientX - touchStart.x;
+      // Fix Y to 0 effectively
+      setSwipeOffset({ x, y: 0 });
+    };
+
+    const handleTouchEnd = () => {
+      if (!isDragging) return;
+
+      // Thresholds
+      const dismissThreshold = 75; // px
+
+      // Dismiss if swiped Sideways enough
+      if (Math.abs(swipeOffset.x) > dismissThreshold) {
+        onRemove(toast.id);
+        // Keep offset to prevent jump before unmount
+      } else {
+        setSwipeOffset({ x: 0, y: 0 });
+        setIsDragging(false);
+      }
+      setTouchStart(null);
+    };
+
+    const containerStyle = {
+      // Only translate X, Y remains 0
+      ...(isDragging ? { transform: `translate(${swipeOffset.x}px, 0px)`, transition: 'none' } : {}),
+      ...(isMobile ? { touchAction: 'pan-y', userSelect: 'none' } : {}) // Allow vertical scrolling, block horizontal
+    };
+
+    return (
+      <div
+        className={`${isMobile
+          ? // Mobile styling: Floating pill, top center, rounded, shadow
+          `pointer-events-auto w-full max-w-[360px] mx-auto rounded-2xl border px-4 py-3 shadow-[0_8px_30px_rgb(0,0,0,0.12)] backdrop-blur-xl text-sm transform transition-all duration-300 ease-out ${isDismissing ? '-translate-y-full opacity-0' : 'translate-y-0 opacity-100'
+          } ${toast.type === 'success'
+            ? 'border-emerald-100/50 bg-white/95 dark:bg-black dark:border-emerald-500/20 text-emerald-700 dark:text-emerald-400'
+            : toast.type === 'error'
+              ? 'border-rose-100/50 bg-white/95 dark:bg-black dark:border-rose-500/20 text-rose-700 dark:text-rose-400'
+              : toast.type === 'warning'
+                ? 'border-amber-100/50 bg-white/95 dark:bg-black dark:border-amber-500/20 text-amber-700 dark:text-amber-400'
+                : 'border-slate-100/50 bg-white/95 dark:bg-black dark:border-white/10 text-slate-700 dark:text-slate-300'
+          }`
+          : // Desktop styling: Floating card, top right
+          `pointer-events-auto flex items-end gap-3 rounded-xl border px-4 py-3 shadow-[0_8px_30px_rgb(0,0,0,0.12)] backdrop-blur-xl min-w-[300px] max-w-[400px] mb-3 text-sm transform transition-all duration-300 ease-out hover:scale-[1.02] ${isDismissing ? 'translate-x-full opacity-0' : 'translate-y-0 opacity-100'
+          } ${toast.type === 'success'
+            ? 'border-emerald-100/50 bg-white/80 dark:bg-black dark:border-emerald-500/20 text-emerald-800 dark:text-emerald-300'
+            : toast.type === 'error'
+              ? 'border-rose-100/50 bg-white/80 dark:bg-black dark:border-rose-500/20 text-rose-800 dark:text-rose-300'
+              : toast.type === 'warning'
+                ? 'border-amber-100/50 bg-white/80 dark:bg-black dark:border-amber-500/20 text-amber-800 dark:text-amber-300'
+                : 'border-slate-100/50 bg-white/80 dark:bg-black dark:border-white/10 text-slate-800 dark:text-slate-300'
+          }`
+          }`}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        style={containerStyle}
+      >
+        <div className={`flex-1 ${isMobile ? 'flex items-center gap-3' : ''}`}>
+          {isMobile ? (
+            // Mobile layout: Compact horizontal pill
+            <>
+              {/* Icon based on type */}
+              <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${toast.type === 'success' ? 'bg-emerald-100 text-emerald-600' :
+                toast.type === 'error' ? 'bg-rose-100 text-rose-600' :
+                  toast.type === 'warning' ? 'bg-amber-100 text-amber-600' :
+                    'bg-slate-100 text-slate-600'
+                }`}>
+                {toast.type === 'success' ? (
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                ) : toast.type === 'error' ? (
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                ) : toast.type === 'warning' ? (
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                ) : (
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                )}
+              </div>
+
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold leading-tight text-gray-900 dark:text-white capitalize truncate">
+                  {toast.type || 'Notification'}
+                </p>
+                <p className="text-sm leading-tight text-gray-600 dark:text-gray-300 truncate mt-0.5">
+                  {toast.message}
+                </p>
+              </div>
+
+              <button
+                onClick={() => onRemove(toast.id)}
+                className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+                aria-label="Dismiss"
+              >
+                <span className="text-lg leading-none">&times;</span>
+              </button>
+            </>
+          ) : (
+            // Desktop layout: Vertical with progress bar
+            <>
+              <div className="flex items-start gap-3">
+                {/* Icon */}
+                <div className={`mt-0.5 flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center ${toast.type === 'success' ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400' :
+                  toast.type === 'error' ? 'bg-rose-100 text-rose-600 dark:bg-rose-900/30 dark:text-rose-400' :
+                    toast.type === 'warning' ? 'bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400' :
+                      'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-400'
+                  }`}>
+                  {toast.type === 'success' ? (
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
+                  ) : toast.type === 'error' ? (
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>
+                  ) : toast.type === 'warning' ? (
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                  ) : (
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                  )}
+                </div>
+
+                <div className="flex-1">
+                  <div className="flex items-center justify-between">
+                    <p className="font-semibold text-sm capitalize text-gray-900 dark:text-white">{toast.type || 'Notification'}</p>
+                    <button
+                      onClick={() => onRemove(toast.id)}
+                      className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors text-lg leading-none -mt-1"
+                    >
+                      &times;
+                    </button>
+                  </div>
+                  <p className="mt-1 text-sm text-gray-600 dark:text-gray-300 leading-relaxed font-medium">
+                    {toast.message}
+                  </p>
+                </div>
+              </div>
+
+              {/* Minimal Progress Line */}
+              <div className="absolute bottom-0 left-4 right-4 h-0.5 bg-gray-100 dark:bg-slate-700 overflow-hidden rounded-full opacity-50">
+                <div
+                  className={`h-full transition-all duration-100 ease-linear ${toast.type === 'success' ? 'bg-emerald-500' :
+                    toast.type === 'error' ? 'bg-rose-500' :
+                      toast.type === 'warning' ? 'bg-amber-500' :
+                        'bg-slate-500'
+                    }`}
+                  style={{ width: `${progressWidth}%` }}
+                />
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  });
+
+  ToastItem.displayName = 'ToastItem';
+
+  const installState = useMemo(() => ({
+    prompt,
+    isInstallable,
+    isInstalled,
+    install
+  }), [prompt, isInstallable, isInstalled, install]);
+
+  const handleInstallClick = useCallback(async () => {
+    if (!install) {
+      setHasDismissedInstallPrompt(true);
+      setShowInstallPrompt(false);
+      return;
+    }
+
+    try {
+      await install();
+    } finally {
+      setHasDismissedInstallPrompt(true);
+      setShowInstallPrompt(false);
+    }
+  }, [install]);
+
+  const handleRecheckSession = async () => {
+    try {
+      const auth = JSON.parse(localStorage.getItem('auth') || '{}');
+      const response = await fetch(`${API_BASE_URL}/auth/check-session`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`,
+          'x-session-id': auth.currentSessionId || ''
+        }
+      });
+      const data = await response.json();
+      if (data.success && data.currentSessionId === state.currentSessionId) {
+        dispatch({ type: ActionTypes.SET_READ_ONLY_MODE, payload: false });
+        if (window.showToast) window.showToast('Session verified. Write access restored!', 'success');
+      } else {
+        if (window.showToast) window.showToast('Another device is still active.', 'error');
+      }
+    } catch (error) {
+      if (window.showToast) window.showToast('Connection error. Please try again.', 'error');
+    }
+  };
+
+  const handleLogout = () => {
+    dispatch({ type: ActionTypes.LOGOUT });
+  };
+
+  const location = useLocation();
+  const isUpgradePage = location.pathname === '/upgrade';
+  const isOnlineStorePage = location.pathname === '/online-store';
+  const [isSidebarHovered, setIsSidebarHovered] = useState(false);
+
+  return (
+    <div className="flex h-screen text-slate-900 dark:text-slate-100 transition-colors duration-300">
+      <nav
+        onMouseEnter={() => setIsSidebarHovered(true)}
+        onMouseLeave={() => setIsSidebarHovered(false)}
+        className={`hidden xl:flex xl:flex-col xl:sticky xl:top-0 xl:h-screen shadow-[0_28px_90px_-55px_rgba(15,23,42,0.55)] transition-all duration-300 ease-in-out overflow-hidden ${sidebarOpen
+          ? (isSidebarHovered ? 'xl:w-72 opacity-100' : 'xl:w-24 opacity-100') // w-24 gives slightly more room for centering icons than w-20
+          : 'xl:w-0 opacity-0'
+          }`}
+      >
+        <Sidebar isMinimized={!isSidebarHovered} />
+      </nav>
+
+      <div className={`fixed inset-0 z-[150] xl:hidden transition-all duration-300 ${sidebarOpen ? 'visible pointer-events-auto' : 'invisible pointer-events-none'}`} style={{ height: '100vh', overflow: 'hidden' }}>
+        {/* Backdrop */}
+        <div
+          className={`absolute inset-0 bg-slate-900/70 backdrop-blur-sm transition-opacity duration-300 ${sidebarOpen ? 'opacity-100' : 'opacity-0'}`}
+          onClick={() => setSidebarOpen(false)}
+        />
+        {/* Sidebar Panel */}
+        <div className={`relative w-full max-w-xs h-full flex flex-col shadow-[0_28px_80px_-50px_rgba(15,23,42,0.55)] bg-white dark:bg-slate-800 transition-transform duration-300 ease-in-out ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`} style={{ height: '100vh' }}>
+          <Sidebar onClose={() => setSidebarOpen(false)} />
+        </div>
+      </div>
+
+      <div className="relative flex min-w-0 flex-1 flex-col">
+        <Header onMenuClick={useCallback(() => setSidebarOpen(prev => !prev), [])} installState={installState} />
+
+        {state.systemStatus === 'offline' && (
+          <div className="bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-amber-500/10 border-b border-amber-500/20 text-amber-600 dark:text-amber-400 text-xs font-medium px-4 py-2.5 text-center flex items-center justify-center gap-2.5 backdrop-blur-md animate-in slide-in-from-top duration-300">
+            <div className="relative flex items-center justify-center">
+              <span className="absolute inline-flex h-2.5 w-2.5 rounded-full bg-amber-500 opacity-75 animate-ping"></span>
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-amber-500"></span>
+            </div>
+            <span className="tracking-wide uppercase text-[10px] sm:text-xs">
+              Offline Mode · Changes will sync in the background
+            </span>
+          </div>
+        )}
+
+        {state.isReadOnlyMode && (
+          <div
+            onClick={() => setShowReadOnlyModal(true)}
+            className="bg-gradient-to-r from-rose-500 via-rose-600 to-rose-700 text-white px-4 py-3 shadow-lg flex items-center justify-center gap-4 animate-in slide-in-from-top duration-500 sticky top-0 z-40 cursor-pointer hover:bg-rose-600 transition-colors"
+          >
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-white/20 rounded-lg animate-pulse">
+                <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                </svg>
+              </div>
+              <div className="text-center">
+                <p className="font-bold text-sm sm:text-base leading-tight">Read-Only Mode Active</p>
+                <p className="text-xs text-white/80 leading-tight mt-0.5">Your account is logged in on another device. Data can be viewed but not modified.</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <main className={`flex-1 overflow-y-auto overflow-x-hidden scroll-smooth no-scrollbar ${isOnlineStorePage ? 'flex flex-col' : ''}`}>
+          <div className={(isUpgradePage || isOnlineStorePage || location.pathname === '/tutorials') ? 'h-full flex flex-col' : (location.pathname === '/billing' ? "p-0 sm:p-5 sm:pt-4 xl:p-7 xl:pt-5 2xl:p-10 2xl:pt-6" : "p-3 pt-3 sm:p-5 sm:pt-4 xl:p-7 xl:pt-5 2xl:p-10 2xl:pt-6")}>
+            {children}
+          </div>
+        </main>
+      </div>
+
+
+      {isPlanLoaderVisible && (
+        <div
+          className={`fixed inset-0 z-[70] flex flex-col items-center justify-center transition-opacity duration-500 ease-out ${shouldShowPlanLoader ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+            }`}
+        >
+          <div className="absolute inset-0 bg-slate-900/65 backdrop-blur-xl" aria-hidden="true"></div>
+          <div className="relative flex flex-col items-center justify-center gap-6 rounded-3xl border border-white/10 bg-white/10 px-10 py-12 shadow-[0_35px_90px_-25px_rgba(15,23,42,0.65)] backdrop-blur-2xl">
+            <div className="relative flex h-20 w-20 items-center justify-center">
+              <div className="absolute inset-0 rounded-full bg-white/10 blur-xl"></div>
+              <div className="h-16 w-16 animate-spin rounded-full border-[3px] border-white/25 border-t-white"></div>
+            </div>
+            <div className="space-y-2 text-center text-white">
+              <p className="text-xs font-semibold uppercase tracking-[0.35em] text-white/60">Please wait</p>
+              <h2 className="text-2xl font-semibold">We are preparing your dashboard...</h2>
+              <p className="text-sm text-white/70 max-w-sm">
+                Fetching the latest plan details and unlocking your workspace.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Enhanced Toast Container - Mobile: Top Floating, Desktop: Top Right */}
+      <div className={`fixed z-[200000] pointer-events-none transition-all duration-300 ${isMobileView
+        ? 'top-4 left-4 right-4 flex flex-col items-center gap-2'
+        : 'top-6 right-6 flex flex-col items-end gap-3 min-w-[320px]'
+        }`}>
+        {toasts.map((toast) => (
+          <ToastItem
+            key={toast.id}
+            toast={toast}
+            onRemove={removeToast}
+            isMobile={isMobileView}
+          />
+        ))}
+      </div>
+
+      {showInstallPrompt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 dark:bg-black/60 backdrop-blur-sm px-4">
+          <div className="w-full max-w-sm rounded-3xl bg-white/90 dark:bg-black border border-slate-200 dark:border-white/10 shadow-[0_28px_70px_-38px_rgba(15,23,42,0.55)] p-6 space-y-4 backdrop-blur-lg">
+            <div className="space-y-1 text-center">
+              <p className="text-xs font-semibold uppercase tracking-[0.35em] text-slate-400">Install App</p>
+              <h2 className="text-xl font-semibold text-slate-900 dark:text-white">Drag &amp; Drop on your device</h2>
+              <p className="text-sm text-slate-500">
+                Install the PWA for instant access, faster launches, and full offline support.
+              </p>
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end sm:gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setHasDismissedInstallPrompt(true);
+                  setShowInstallPrompt(false);
+                }}
+                className="px-4 py-2 rounded-full border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-100 transition"
+              >
+                Maybe later
+              </button>
+              <button
+                type="button"
+                onClick={handleInstallClick}
+                className="px-4 py-2 rounded-full bg-[linear-gradient(135deg,#2F3C7E,#18224f)] text-white text-sm font-semibold hover:bg-[linear-gradient(135deg,#243168,#111c44)] transition"
+              >
+                Install now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Read-Only Mode Explanation Modal */}
+      {showReadOnlyModal && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 dark:bg-black/60 backdrop-blur-sm px-4">
+          <div className="w-full max-w-sm rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 shadow-[0_28px_70px_-38px_rgba(15,23,42,0.55)] p-6 space-y-4 backdrop-blur-lg animate-in zoom-in-95 duration-200">
+            <div className="flex justify-center">
+              <div className="p-3 bg-rose-100 dark:bg-rose-900/30 rounded-full text-rose-600 dark:text-rose-400">
+                <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                </svg>
+              </div>
+            </div>
+            <div className="space-y-1 text-center">
+              <h2 className="text-xl font-semibold text-slate-900 dark:text-white">Read-Only Mode</h2>
+              <p className="text-sm text-slate-500 dark:text-gray-400">
+                Data modification is locked because this account is currently active on another device.
+              </p>
+              <p className="text-sm font-medium text-slate-700 dark:text-gray-300 mt-2">
+                To perform operations on this device, you must logout and login again.
+              </p>
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end sm:gap-3 mt-2">
+              <button
+                type="button"
+                onClick={() => setShowReadOnlyModal(false)}
+                className="px-4 py-2 rounded-full border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-800 transition"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowReadOnlyModal(false);
+                  handleLogout();
+                }}
+                className="px-4 py-2 rounded-full bg-rose-600 text-white text-sm font-semibold hover:bg-rose-700 transition shadow-lg shadow-rose-500/20"
+              >
+                Logout
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+});
+
+Layout.displayName = 'Layout';
+
+export default Layout;
